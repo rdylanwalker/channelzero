@@ -1,5 +1,5 @@
 # Stage 1: Build Frontend
-FROM node:26-alpine AS frontend-builder
+FROM node:24-alpine AS frontend-builder
 WORKDIR /build/frontend
 
 COPY frontend/package*.json ./
@@ -9,7 +9,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Build Rust Backend
-FROM rust:1.100-alpine AS backend-builder
+FROM rust:1-alpine AS backend-builder
 WORKDIR /build
 
 RUN apk add --no-cache musl-dev sqlite-dev openssl-dev openssl-libs-static

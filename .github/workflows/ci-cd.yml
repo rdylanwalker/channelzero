@@ -7,6 +7,9 @@ on:
   pull_request:
     branches:
       - main
+  release:
+    types:
+      - published
 
 jobs:
   rust:
@@ -92,6 +95,8 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+    outputs:
+      release_tag: ${{ steps.tag.outputs.release_tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -103,3 +108,69 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx --yes semantic-release
+      - name: Detect published release tag
+        id: tag
+        run: |
+          git fetch --tags --force
+          TAG="$(git tag --points-at HEAD | grep -E '^v[0-9]+' | head -n1 || true)"
+          echo "release_tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+  docker:
+    name: Build & Publish OCI Image (GHCR)
+    needs: [release]
+    if: >-
+      always() &&
+      (
+        (github.event_name == 'push' && needs.release.result == 'success' && needs.release.outputs.release_tag != '') ||
+        github.event_name == 'release'
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve release tag
+        id: meta_tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG="${{ needs.release.outputs.release_tag }}"
+          fi
+          VERSION="${TAG#v}"
+          IMAGE="ghcr.io/${{ github.repository }}"
+          IMAGE_LOWER="$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "image=${IMAGE_LOWER}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push OCI image
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.meta_tag.outputs.image }}:${{ steps.meta_tag.outputs.version }}
+            ${{ steps.meta_tag.outputs.image }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Link container image in GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.meta_tag.outputs.tag }}"
+          VERSION="${{ steps.meta_tag.outputs.version }}"
+          IMAGE="${{ steps.meta_tag.outputs.image }}"
+          DIGEST="${{ steps.push.outputs.digest }}"
+          EXISTING_NOTES="$(gh release view "$TAG" --json body -q .body || true)"
+          SECTION=$(printf '\n\n### Container Image\n- `%s:%s`\n- `%s:latest`\n- Digest: `%s`\n\n```bash\ndocker pull %s:%s\n```' "$IMAGE" "$VERSION" "$IMAGE" "$DIGEST" "$IMAGE" "$VERSION")
+          gh release edit "$TAG" --notes "${EXISTING_NOTES}${SECTION}"
