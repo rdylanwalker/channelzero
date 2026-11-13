@@ -37,6 +37,7 @@ export function App() {
   const [programs, setPrograms] = useState<ProgramDto[]>([])
   const [visibleCount, setVisibleCount] = useState(24)
   const loadMoreRef = useRef<HTMLDivElement | null>(null)
+  const didMountFiltersRef = useRef(false)
   const [availableGenres, setAvailableGenres] = useState<string[]>([])
   const [hiddenState, setHiddenState] = useState<ProfileHiddenState | null>(null)
   const [loading, setLoading] = useState(true)
@@ -159,6 +160,41 @@ export function App() {
     })()
   }, [refreshPrograms])
 
+  // Reset pagination and scroll back to top whenever a filter, sort, or profile changes
+  useEffect(() => {
+    if (!didMountFiltersRef.current) {
+      didMountFiltersRef.current = true
+      return
+    }
+    setVisibleCount(24)
+    if (typeof window.scrollTo === 'function') {
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }, [
+    activeProfileId,
+    q,
+    selectedProvider,
+    mediaType,
+    releaseKind,
+    genre,
+    status,
+    minRating,
+    sort,
+    order,
+  ])
+
+  const handleResetFilters = () => {
+    setQ('')
+    setSelectedProvider('all')
+    setMediaType('all')
+    setReleaseKind('all')
+    setGenre('all')
+    setStatus('all')
+    setMinRating('all')
+    setSort('release_date')
+    setOrder('desc')
+  }
+
   const handleSelectProfile = (id: string) => {
     setActiveProfileId(id)
     localStorage.setItem('channelzero_profile', id)
@@ -274,42 +310,47 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <Header
-        profiles={profiles}
-        activeProfileId={activeProfileId}
-        onSelectProfile={handleSelectProfile}
-        config={config}
-        syncStatus={syncStatus}
-        onRefresh={handleManualSync}
-        onOpenSyncStatus={() => setSyncModalOpen(true)}
-        onOpenProfileSettings={() => setProfileModalOpen(true)}
-      />
-
-      <main className="mx-auto max-w-7xl space-y-6 px-4 py-6">
-        <FilterBar
-          q={q}
-          onQChange={setQ}
-          providers={config?.providers ?? []}
-          selectedProvider={selectedProvider}
-          onProviderChange={setSelectedProvider}
-          mediaType={mediaType}
-          onMediaTypeChange={setMediaType}
-          releaseKind={releaseKind}
-          onReleaseKindChange={setReleaseKind}
-          genre={genre}
-          onGenreChange={setGenre}
-          availableGenres={availableGenres}
-          status={status}
-          onStatusChange={setStatus}
-          minRating={minRating}
-          onMinRatingChange={setMinRating}
-          sort={sort}
-          onSortChange={setSort}
-          order={order}
-          onOrderToggle={() => setOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))}
-          totalCount={programs.length}
+      <div className="sticky top-0 z-30 bg-background/90 backdrop-blur-md">
+        <Header
+          profiles={profiles}
+          activeProfileId={activeProfileId}
+          onSelectProfile={handleSelectProfile}
+          config={config}
+          syncStatus={syncStatus}
+          onRefresh={handleManualSync}
+          onOpenSyncStatus={() => setSyncModalOpen(true)}
+          onOpenProfileSettings={() => setProfileModalOpen(true)}
         />
 
+        <div className="mx-auto max-w-7xl px-4 py-3">
+          <FilterBar
+            q={q}
+            onQChange={setQ}
+            providers={config?.providers ?? []}
+            selectedProvider={selectedProvider}
+            onProviderChange={setSelectedProvider}
+            mediaType={mediaType}
+            onMediaTypeChange={setMediaType}
+            releaseKind={releaseKind}
+            onReleaseKindChange={setReleaseKind}
+            genre={genre}
+            onGenreChange={setGenre}
+            availableGenres={availableGenres}
+            status={status}
+            onStatusChange={setStatus}
+            minRating={minRating}
+            onMinRatingChange={setMinRating}
+            sort={sort}
+            onSortChange={setSort}
+            order={order}
+            onOrderToggle={() => setOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))}
+            onResetFilters={handleResetFilters}
+            totalCount={programs.length}
+          />
+        </div>
+      </div>
+
+      <main className="mx-auto max-w-7xl space-y-6 px-4 pb-6 pt-3">
         {loading ? (
           <div className="flex h-64 items-center justify-center">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent border-t-transparent" />

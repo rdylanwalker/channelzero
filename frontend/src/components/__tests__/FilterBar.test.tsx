@@ -32,9 +32,12 @@ describe('FilterBar', () => {
         onSortChange={vi.fn()}
         order="desc"
         onOrderToggle={vi.fn()}
+        onResetFilters={vi.fn()}
         totalCount={1}
       />,
     )
+
+    expect(screen.getByRole('button', { name: 'Reset Filters' })).not.toBeDisabled()
 
     expect(screen.getByRole('option', { name: 'All Genres' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Action' })).toBeInTheDocument()
@@ -54,6 +57,7 @@ describe('FilterBar', () => {
     const onMinRatingChange = vi.fn()
     const onSortChange = vi.fn()
     const onOrderToggle = vi.fn()
+    const onResetFilters = vi.fn()
 
     render(
       <FilterBar
@@ -77,6 +81,7 @@ describe('FilterBar', () => {
         onSortChange={onSortChange}
         order="asc"
         onOrderToggle={onOrderToggle}
+        onResetFilters={onResetFilters}
         totalCount={2}
       />,
     )
@@ -120,5 +125,40 @@ describe('FilterBar', () => {
     // Clicking All Providers
     fireEvent.click(screen.getByRole('button', { name: 'All Providers' }))
     expect(onProviderChange).toHaveBeenCalledWith('all')
+
+    // Clicking Reset Filters
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Filters' }))
+    expect(onResetFilters).toHaveBeenCalledTimes(1)
+  })
+
+  it('disables Reset Filters when all filters and sort are at defaults', () => {
+    render(
+      <FilterBar
+        q=""
+        onQChange={vi.fn()}
+        providers={providers}
+        selectedProvider="all"
+        onProviderChange={vi.fn()}
+        mediaType="all"
+        onMediaTypeChange={vi.fn()}
+        releaseKind="all"
+        onReleaseKindChange={vi.fn()}
+        genre="all"
+        onGenreChange={vi.fn()}
+        availableGenres={[]}
+        status="all"
+        onStatusChange={vi.fn()}
+        minRating="all"
+        onMinRatingChange={vi.fn()}
+        sort="release_date"
+        onSortChange={vi.fn()}
+        order="desc"
+        onOrderToggle={vi.fn()}
+        onResetFilters={vi.fn()}
+        totalCount={0}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Reset Filters' })).toBeDisabled()
   })
 })
