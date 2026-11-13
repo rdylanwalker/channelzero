@@ -101,7 +101,8 @@ describe('Header', () => {
       />,
     )
 
-    fireEvent.change(screen.getByLabelText('Active profile'), { target: { value: 'uk' } })
+    fireEvent.click(screen.getByLabelText('Active profile'))
+    fireEvent.click(screen.getByRole('option', { name: 'UK Profile' }))
     expect(onSelectProfile).toHaveBeenCalledWith('uk')
 
     fireEvent.click(screen.getByTitle('Profiles & Hidden Titles/Genres'))

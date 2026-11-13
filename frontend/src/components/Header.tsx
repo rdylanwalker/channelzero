@@ -1,7 +1,7 @@
-import { Activity, RefreshCw, Settings, User } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Activity, Check, ChevronDown, RefreshCw, Settings, User } from 'lucide-react'
 import type { Profile, PublicConfig, SyncStatusResponse } from '../types'
 import { Button } from './ui/Button'
-import { Select } from './ui/Select'
 
 interface HeaderProps {
   profiles: Profile[]
@@ -24,6 +24,29 @@ export function Header({
   onOpenSyncStatus,
   onOpenProfileSettings,
 }: HeaderProps) {
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false)
+  const profileMenuRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!profileMenuOpen) return
+    const handleMouseDown = (e: MouseEvent) => {
+      if (profileMenuRef.current && !profileMenuRef.current.contains(e.target as Node)) {
+        setProfileMenuOpen(false)
+      }
+    }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setProfileMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleMouseDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleMouseDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [profileMenuOpen])
+
   const isSyncing = syncStatus?.is_syncing ?? false
   const hasError = syncStatus?.sources.some((s) => s.enabled && s.last_status === 'error')
   const activeProfile = profiles.find((p) => p.id === activeProfileId)
@@ -61,20 +84,51 @@ export function Header({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-1">
-            <User className="h-4 w-4 text-muted-foreground" />
-            <Select
-              value={activeProfileId}
-              onChange={(e) => onSelectProfile(e.target.value)}
-              className="h-7 border-0 bg-transparent px-1 text-xs focus-visible:ring-0"
+          <div className="relative" ref={profileMenuRef}>
+            <button
+              type="button"
+              onClick={() => setProfileMenuOpen((prev) => !prev)}
               aria-label="Active profile"
+              aria-haspopup="listbox"
+              aria-expanded={profileMenuOpen}
+              className="flex h-8 items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2.5 text-xs font-medium text-foreground shadow-sm transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
-              {profiles.map((p) => (
-                <option key={p.id} value={p.id} className="bg-card text-foreground">
-                  {p.name}
-                </option>
-              ))}
-            </Select>
+              <User className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="max-w-[120px] truncate">{activeProfile?.name ?? 'Default'}</span>
+              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+            </button>
+
+            {profileMenuOpen && (
+              <div
+                role="listbox"
+                aria-label="Profiles"
+                className="absolute right-0 top-full z-40 mt-1 min-w-[160px] rounded-lg border border-border bg-card p-1 shadow-xl"
+              >
+                {profiles.map((p) => {
+                  const active = p.id === activeProfileId
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      role="option"
+                      aria-selected={active}
+                      onClick={() => {
+                        onSelectProfile(p.id)
+                        setProfileMenuOpen(false)
+                      }}
+                      className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition ${
+                        active
+                          ? 'bg-accent/15 font-medium text-foreground'
+                          : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                      }`}
+                    >
+                      <span className="truncate">{p.name}</span>
+                      {active && <Check className="h-3.5 w-3.5 shrink-0 text-accent" />}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           <Button
