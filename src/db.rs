@@ -180,6 +180,17 @@ impl Database {
         }))
     }
 
+    pub async fn max_profile_new_release_days(&self) -> Result<Option<u32>> {
+        let row = sqlx::query("SELECT MAX(new_release_days) AS max_days FROM profiles")
+            .fetch_one(&self.pool)
+            .await?;
+
+        Ok(row
+            .get::<Option<i64>, _>("max_days")
+            .filter(|&v| v > 0)
+            .map(|v| v as u32))
+    }
+
     pub async fn update_profile_settings(
         &self,
         profile_id: &str,
@@ -593,6 +604,7 @@ mod tests {
         let def = db.get_profile("default").await.unwrap().unwrap();
         assert_eq!(def.region, None);
         assert_eq!(def.new_release_days, None);
+        assert_eq!(db.max_profile_new_release_days().await.unwrap(), None);
 
         let updated = db
             .update_profile_settings("default", Some("GB".into()), Some(14))
@@ -601,6 +613,16 @@ mod tests {
             .unwrap();
         assert_eq!(updated.region.as_deref(), Some("GB"));
         assert_eq!(updated.new_release_days, Some(14));
+        assert_eq!(db.max_profile_new_release_days().await.unwrap(), Some(14));
+
+        let second = db.create_profile("Kid").await.unwrap();
+        db.update_profile_settings(&second.id, None, Some(180))
+            .await
+            .unwrap();
+        assert_eq!(db.max_profile_new_release_days().await.unwrap(), Some(180));
+
+        db.delete_profile(&second.id).await.unwrap();
+        assert_eq!(db.max_profile_new_release_days().await.unwrap(), Some(14));
 
         let reset = db
             .update_profile_settings("default", None, None)

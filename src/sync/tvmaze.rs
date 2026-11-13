@@ -98,12 +98,13 @@ pub async fn fetch_tvmaze_releases(
     client: &Client,
     config: &AppConfig,
     today: NaiveDate,
+    lookback_days: u32,
 ) -> Result<Vec<RawProgram>> {
     let mut dedup: HashMap<i64, RawProgram> = HashMap::new();
 
-    // Fetch web/streaming schedule for the past new_release_days + today,
+    // Fetch web/streaming schedule for the past lookback_days + today,
     // pacing requests gently when fetching more than 14 days to respect TVmaze rate limits.
-    let lookback = config.new_release_days as i64;
+    let lookback = lookback_days as i64;
     for offset in 0..=lookback {
         if offset > 0 && lookback > 14 {
             tokio::time::sleep(std::time::Duration::from_millis(80)).await;
@@ -112,13 +113,24 @@ pub async fn fetch_tvmaze_releases(
         let date_str = date.format("%Y-%m-%d").to_string();
         let url = format!("https://api.tvmaze.com/schedule/web?date={date_str}");
 
-        let resp = match client.get(&url).send().await {
+        let mut resp = match client.get(&url).send().await {
             Ok(r) => r,
             Err(e) => {
                 debug!("TVmaze request failed for {date_str}: {e}");
                 continue;
             }
         };
+
+        if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            resp = match client.get(&url).send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    debug!("TVmaze retry failed for {date_str}: {e}");
+                    continue;
+                }
+            };
+        }
 
         if !resp.status().is_success() {
             debug!("TVmaze HTTP {} for {date_str}", resp.status());
