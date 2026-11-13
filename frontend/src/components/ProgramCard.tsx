@@ -112,11 +112,12 @@ export function ProgramCard({
               <span>·</span>
               <span className="capitalize">{program.media_type}</span>
             </div>
-            {program.episode_info && (
-              <p className="mt-1 line-clamp-1 text-[11px] font-medium text-blue-300">
-                {program.episode_info}
-              </p>
-            )}
+            <p
+              className="mt-1 min-h-4 line-clamp-1 text-[11px] leading-4 font-medium text-blue-300"
+              aria-hidden={!program.episode_info}
+            >
+              {program.episode_info ?? ''}
+            </p>
           </button>
 
           {/* Provider Badges */}
