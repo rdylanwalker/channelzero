@@ -2,7 +2,7 @@ use anyhow::Result;
 use chrono::{Duration, NaiveDate};
 use reqwest::Client;
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use tracing::debug;
 
 use crate::config::{
@@ -51,6 +51,20 @@ struct TmdbProviderEntry {
 #[derive(Debug, Deserialize)]
 struct TmdbExternalIds {
     imdb_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TmdbTvDetails {
+    last_air_date: Option<String>,
+    last_episode_to_air: Option<TmdbEpisodeSummary>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TmdbEpisodeSummary {
+    name: Option<String>,
+    air_date: Option<String>,
+    season_number: Option<i32>,
+    episode_number: Option<i32>,
 }
 
 fn tmdb_genre_name(id: i64) -> Option<&'static str> {
@@ -148,7 +162,8 @@ pub async fn fetch_tmdb_releases(
         }
     }
 
-    // 2. Discover TV Series (paginated)
+    // 2a. Discover New TV Series (paginated, filtered by first_air_date)
+    let mut seen_tv_ids: HashSet<i64> = HashSet::new();
     for page in 1..=max_pages {
         let tv_url = format!(
             "https://api.themoviedb.org/3/discover/tv?api_key={api_key}&watch_region={}&with_watch_providers={watch_providers_param}&first_air_date.gte={min_date}&first_air_date.lte={max_date}&sort_by=popularity.desc&page={page}",
@@ -162,6 +177,7 @@ pub async fn fetch_tmdb_releases(
                         break;
                     }
                     for item in data.results {
+                        seen_tv_ids.insert(item.id);
                         if let Some(prog) =
                             enrich_tmdb_item(client, config, api_key, item, MediaType::Series).await
                         {
@@ -183,11 +199,105 @@ pub async fn fetch_tmdb_releases(
         }
     }
 
+    // 2b. Discover Returning TV Seasons / New Episodes (paginated, filtered by air_date)
+    for page in 1..=max_pages {
+        let tv_air_url = format!(
+            "https://api.themoviedb.org/3/discover/tv?api_key={api_key}&watch_region={}&with_watch_providers={watch_providers_param}&air_date.gte={min_date}&air_date.lte={max_date}&sort_by=popularity.desc&page={page}",
+            config.region
+        );
+        match client.get(&tv_air_url).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                if let Ok(data) = resp.json::<TmdbDiscoverResponse>().await {
+                    let total_pages = data.total_pages.unwrap_or(1);
+                    if data.results.is_empty() {
+                        break;
+                    }
+                    for item in data.results {
+                        if !seen_tv_ids.insert(item.id) {
+                            continue;
+                        }
+                        if let Some(prog) = enrich_tmdb_returning_tv(
+                            client, config, api_key, item, &min_date, &max_date,
+                        )
+                        .await
+                        {
+                            out.push(prog);
+                        }
+                    }
+                    if page >= total_pages {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+            Ok(resp) => {
+                debug!("TMDB discover returning tv HTTP {}", resp.status());
+                break;
+            }
+            Err(_) => break,
+        }
+    }
+
     Ok(out)
 }
 
 fn discover_page_limit(new_release_days: u32) -> u32 {
     new_release_days.div_ceil(15).clamp(1, 5)
+}
+
+fn is_date_in_window(date: &str, min_date: &str, max_date: &str) -> bool {
+    !date.is_empty() && date >= min_date && date <= max_date
+}
+
+fn format_tmdb_episode_info(ep: &TmdbEpisodeSummary) -> Option<String> {
+    let ep_name = ep.name.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    match (ep.season_number, ep.episode_number, ep_name) {
+        (Some(s), Some(e), Some(name)) => Some(format!("S{s:02}E{e:02} · {name}")),
+        (Some(s), Some(e), None) => Some(format!("S{s:02}E{e:02}")),
+        _ => ep_name.map(str::to_string),
+    }
+}
+
+async fn enrich_tmdb_returning_tv(
+    client: &Client,
+    config: &AppConfig,
+    api_key: &str,
+    item: TmdbDiscoverItem,
+    min_date: &str,
+    max_date: &str,
+) -> Option<RawProgram> {
+    let details_url = format!(
+        "https://api.themoviedb.org/3/tv/{}?api_key={api_key}",
+        item.id
+    );
+    let details: TmdbTvDetails = match client.get(&details_url).send().await {
+        Ok(resp) if resp.status().is_success() => resp.json().await.ok()?,
+        _ => return None,
+    };
+
+    let ep_air_date = details
+        .last_episode_to_air
+        .as_ref()
+        .and_then(|e| e.air_date.as_deref())
+        .filter(|d| !d.is_empty())
+        .or(details.last_air_date.as_deref())?;
+
+    if !is_date_in_window(ep_air_date, min_date, max_date) {
+        return None;
+    }
+
+    let episode_info = details
+        .last_episode_to_air
+        .as_ref()
+        .and_then(format_tmdb_episode_info);
+    let ep_air_date = ep_air_date.to_string();
+
+    let mut prog = enrich_tmdb_item(client, config, api_key, item, MediaType::Series).await?;
+    prog.release_kind = ReleaseKind::NewEpisode;
+    prog.release_date = ep_air_date;
+    prog.episode_info = episode_info;
+    Some(prog)
 }
 
 async fn enrich_tmdb_item(
@@ -326,5 +436,51 @@ mod tests {
         assert_eq!(discover_page_limit(60), 4);
         assert_eq!(discover_page_limit(90), 5);
         assert_eq!(discover_page_limit(365), 5);
+    }
+
+    #[test]
+    fn date_window_check_handles_bounds_and_empty() {
+        assert!(!is_date_in_window("", "2026-10-01", "2026-10-31"));
+        assert!(!is_date_in_window("2026-09-30", "2026-10-01", "2026-10-31"));
+        assert!(is_date_in_window("2026-10-01", "2026-10-01", "2026-10-31"));
+        assert!(is_date_in_window("2026-10-15", "2026-10-01", "2026-10-31"));
+        assert!(is_date_in_window("2026-10-31", "2026-10-01", "2026-10-31"));
+        assert!(!is_date_in_window("2026-11-01", "2026-10-01", "2026-10-31"));
+    }
+
+    #[test]
+    fn episode_info_formats_season_episode_and_name() {
+        let full = TmdbEpisodeSummary {
+            name: Some("The Ascension".into()),
+            air_date: Some("2026-06-24".into()),
+            season_number: Some(4),
+            episode_number: Some(12),
+        };
+        assert_eq!(
+            format_tmdb_episode_info(&full).as_deref(),
+            Some("S04E12 · The Ascension")
+        );
+
+        let no_name = TmdbEpisodeSummary {
+            name: Some("  ".into()),
+            air_date: None,
+            season_number: Some(4),
+            episode_number: Some(1),
+        };
+        assert_eq!(
+            format_tmdb_episode_info(&no_name).as_deref(),
+            Some("S04E01")
+        );
+
+        let only_name = TmdbEpisodeSummary {
+            name: Some("Special".into()),
+            air_date: None,
+            season_number: None,
+            episode_number: None,
+        };
+        assert_eq!(
+            format_tmdb_episode_info(&only_name).as_deref(),
+            Some("Special")
+        );
     }
 }
