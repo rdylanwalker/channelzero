@@ -361,8 +361,18 @@ fn merge_programs(raw_items: Vec<RawProgram>, config: &AppConfig) -> Vec<MergedP
                 // Keep latest release date & episode info if newer
                 if raw.release_date > existing.release_date {
                     existing.release_date = raw.release_date.clone();
+                    existing.release_kind = raw.release_kind.clone();
                     if raw.episode_info.is_some() {
                         existing.episode_info = raw.episode_info.clone();
+                    }
+                } else if raw.release_date == existing.release_date {
+                    if existing.episode_info.is_none() && raw.episode_info.is_some() {
+                        existing.episode_info = raw.episode_info.clone();
+                    }
+                    if raw.release_kind == ReleaseKind::NewEpisode
+                        && existing.release_kind == ReleaseKind::NewTitle
+                    {
+                        existing.release_kind = ReleaseKind::NewEpisode;
                     }
                 }
                 if existing.synopsis.is_none() {
