@@ -115,6 +115,7 @@ test.describe('ChannelZero Dashboard E2E', () => {
     await page.getByLabel('New Release Days').fill('14')
     await page.getByRole('button', { name: 'Save', exact: true }).click()
 
+    await expect(page.getByText('Settings saved.')).toBeVisible()
     await expect(page.getByText(/Region updated to/i)).toBeVisible()
     await page.keyboard.press('Escape')
 
@@ -134,5 +135,32 @@ test.describe('ChannelZero Dashboard E2E', () => {
     await page.getByRole('button', { name: /Sources/i }).click()
     await expect(page.getByText('Metadata Sources & Sync Status')).toBeVisible()
     await expect(page.getByText('Total Titles')).toBeVisible()
+  })
+
+  test('resets filters and falls back to catalog search for older titles', async ({ page }) => {
+    await page.goto('/')
+    await expect(page.getByText('4 programs')).toBeVisible()
+
+    const resetBtn = page.getByRole('button', { name: 'Reset Filters' })
+    await expect(resetBtn).toBeDisabled()
+
+    // Apply a filter -> Reset Filters becomes enabled and restores all 4 programs
+    const mediaSelect = page.locator('select', { has: page.locator('option[value="movie"]') })
+    await mediaSelect.selectOption('movie')
+    await expect(page.getByText('2 programs')).toBeVisible()
+    await expect(resetBtn).toBeEnabled()
+
+    await resetBtn.click()
+    await expect(page.getByText('4 programs')).toBeVisible()
+    await expect(resetBtn).toBeDisabled()
+
+    // Search for an older program outside the 30-day window -> automatic catalog fallback
+    const searchInput = page.getByPlaceholder('Search titles or synopses...')
+    await searchInput.fill('Vintage')
+    await expect(page.getByRole('heading', { name: 'Vintage Quest' })).toBeVisible()
+    await expect(page.getByText('Older than window')).toBeVisible()
+    await expect(
+      page.getByText(/Showing streaming catalog results older than your release window/i),
+    ).toBeVisible()
   })
 })
