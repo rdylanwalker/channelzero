@@ -29,6 +29,11 @@ export function Header({
   const activeProfile = profiles.find((p) => p.id === activeProfileId)
   const effectiveRegion = activeProfile?.region ?? config?.region
   const effectiveDays = activeProfile?.new_release_days ?? config?.new_release_days
+  const lastSyncLabel = syncStatus
+    ? syncStatus.last_sync_at
+      ? new Date(syncStatus.last_sync_at).toLocaleString()
+      : 'Never'
+    : null
 
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-background/90 backdrop-blur-md">
@@ -48,6 +53,11 @@ export function Header({
             </div>
             <p className="text-xs text-muted-foreground">
               New releases across your streaming services
+              {lastSyncLabel !== null && (
+                <span className="ml-1.5" data-testid="last-refreshed">
+                  · Last refreshed: <span className="text-foreground/80">{lastSyncLabel}</span>
+                </span>
+              )}
             </p>
           </div>
         </div>
