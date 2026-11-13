@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   createProfile,
   deleteProfile,
@@ -35,6 +35,8 @@ export function App() {
   const [activeProfileId, setActiveProfileId] = useState<string>('default')
   const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null)
   const [programs, setPrograms] = useState<ProgramDto[]>([])
+  const [visibleCount, setVisibleCount] = useState(24)
+  const loadMoreRef = useRef<HTMLDivElement | null>(null)
   const [availableGenres, setAvailableGenres] = useState<string[]>([])
   const [hiddenState, setHiddenState] = useState<ProfileHiddenState | null>(null)
   const [loading, setLoading] = useState(true)
@@ -113,6 +115,7 @@ export function App() {
         listGenres(activeProfileId),
       ])
       setPrograms(progs)
+      setVisibleCount(24)
       setHiddenState(hidden)
       setAvailableGenres(genres)
     } catch (err) {
@@ -249,6 +252,26 @@ export function App() {
     refreshPrograms()
   }
 
+  const visiblePrograms = useMemo(() => programs.slice(0, visibleCount), [programs, visibleCount])
+  const hasMorePrograms = visibleCount < programs.length
+
+  useEffect(() => {
+    if (!hasMorePrograms || typeof IntersectionObserver === 'undefined') return
+    const el = loadMoreRef.current
+    if (!el) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount((prev) => Math.min(prev + 24, programs.length))
+        }
+      },
+      { rootMargin: '200px' },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [hasMorePrograms, programs.length])
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Header
@@ -299,20 +322,34 @@ export function App() {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-            {programs.map((p) => (
-              <ProgramCard
-                key={p.id}
-                program={p}
-                providerMetaMap={providerMetaMap}
-                onLaunch={handleLaunch}
-                onOpenDetail={setSelectedProgram}
-                onToggleWatched={handleToggleWatched}
-                onToggleWatchlist={handleToggleWatchlist}
-                onNotInterested={handleNotInterested}
-              />
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+              {visiblePrograms.map((p) => (
+                <ProgramCard
+                  key={p.id}
+                  program={p}
+                  providerMetaMap={providerMetaMap}
+                  onLaunch={handleLaunch}
+                  onOpenDetail={setSelectedProgram}
+                  onToggleWatched={handleToggleWatched}
+                  onToggleWatchlist={handleToggleWatchlist}
+                  onNotInterested={handleNotInterested}
+                />
+              ))}
+            </div>
+
+            {hasMorePrograms && (
+              <div ref={loadMoreRef} className="flex flex-col items-center gap-2 py-4">
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount((prev) => Math.min(prev + 24, programs.length))}
+                  className="rounded-md border border-border bg-muted/50 px-4 py-2 text-xs font-medium text-foreground transition hover:bg-muted"
+                >
+                  Load more ({programs.length - visiblePrograms.length} remaining)
+                </button>
+              </div>
+            )}
+          </>
         )}
       </main>
 
