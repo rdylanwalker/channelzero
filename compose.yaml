@@ -25,6 +25,24 @@ services:
       - channelzero_data:/data
       # Optional: mount custom configuration file or directory
       # - ./config.json:/config/config.json:ro
+    develop:
+      watch:
+        - action: rebuild
+          path: ./src
+        - action: rebuild
+          path: ./Cargo.toml
+        - action: rebuild
+          path: ./Cargo.lock
+        - action: rebuild
+          path: ./frontend/src
+        - action: rebuild
+          path: ./frontend/public
+        - action: rebuild
+          path: ./frontend/index.html
+        - action: rebuild
+          path: ./frontend/package.json
+        - action: rebuild
+          path: ./Dockerfile
 
 volumes:
   channelzero_data:

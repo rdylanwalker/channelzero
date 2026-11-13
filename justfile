@@ -92,3 +92,8 @@ lint: rust-fmt rust-clippy fe-lint prettier
 test: rust-test fe-test
 
 ci: lint test e2e
+
+# --- Local Container Watch ---
+
+watch:
+    docker compose up --watch --build
