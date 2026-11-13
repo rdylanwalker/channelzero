@@ -135,14 +135,14 @@ export function FilterBar({
               onClick={() => setGenreOpen((prev) => !prev)}
               aria-label="Filter by genres"
               aria-expanded={genreOpen}
-              className={`flex h-9 items-center justify-between gap-2 rounded-md border px-3 py-1 text-sm shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+              className={`flex h-9 items-center justify-between gap-2 rounded-md border px-2.5 py-1 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                 genres.length > 0
                   ? 'border-accent bg-accent/15 text-foreground'
-                  : 'border-input bg-muted/60 text-foreground hover:bg-muted'
+                  : 'border-border bg-muted/80 text-foreground hover:bg-muted'
               }`}
             >
               <span className="truncate max-w-[120px]">{genreLabel}</span>
-              <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
             </button>
 
             {genreOpen && (
