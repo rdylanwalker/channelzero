@@ -44,7 +44,10 @@ export function ProfileSettingsModal({
 
   const activeProfile = profiles.find((p) => p.id === activeProfileId)
 
-  const [prevSyncKey, setPrevSyncKey] = useState(`${activeProfileId}:${open}`)
+  const currentSyncKey = `${activeProfileId}:${open}:${activeProfile?.region ?? ''}:${activeProfile?.new_release_days ?? ''}`
+  const currentContextKey = `${activeProfileId}:${open}`
+  const [prevSyncKey, setPrevSyncKey] = useState(currentSyncKey)
+  const [prevContextKey, setPrevContextKey] = useState(currentContextKey)
   const [regionInput, setRegionInput] = useState(activeProfile?.region ?? '')
   const [daysInput, setDaysInput] = useState(
     activeProfile?.new_release_days !== null && activeProfile?.new_release_days !== undefined
@@ -56,7 +59,6 @@ export function ProfileSettingsModal({
   const [settingsSaved, setSettingsSaved] = useState(false)
   const [syncPromptMessage, setSyncPromptMessage] = useState<string | null>(null)
 
-  const currentSyncKey = `${activeProfileId}:${open}:${activeProfile?.region ?? ''}:${activeProfile?.new_release_days ?? ''}`
   if (currentSyncKey !== prevSyncKey) {
     setPrevSyncKey(currentSyncKey)
     setRegionInput(activeProfile?.region ?? '')
@@ -65,8 +67,13 @@ export function ProfileSettingsModal({
         ? String(activeProfile.new_release_days)
         : '',
     )
+  }
+
+  if (currentContextKey !== prevContextKey) {
+    setPrevContextKey(currentContextKey)
     setSettingsError(null)
     setSettingsSaved(false)
+    setSyncPromptMessage(null)
   }
 
   const handleCreate = async (e: React.FormEvent) => {
