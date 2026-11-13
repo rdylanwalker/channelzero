@@ -16,6 +16,26 @@ use crate::models::{MediaType, ProviderLink, ReleaseKind, SourceRating};
 use crate::sync::RawProgram;
 
 #[derive(Debug, Deserialize)]
+struct TmdbMultiSearchResponse {
+    results: Vec<TmdbMultiSearchItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TmdbMultiSearchItem {
+    id: i64,
+    media_type: Option<String>,
+    title: Option<String>,
+    name: Option<String>,
+    overview: Option<String>,
+    poster_path: Option<String>,
+    backdrop_path: Option<String>,
+    release_date: Option<String>,
+    first_air_date: Option<String>,
+    vote_average: Option<f64>,
+    genre_ids: Option<Vec<i64>>,
+}
+
+#[derive(Debug, Deserialize)]
 struct TmdbDiscoverResponse {
     results: Vec<TmdbDiscoverItem>,
     total_pages: Option<u32>,
@@ -290,6 +310,78 @@ pub async fn fetch_tmdb_releases(
         }
     }
 
+    Ok(out)
+}
+
+fn encode_query_component(input: &str) -> String {
+    input
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            b' ' => "+".to_string(),
+            _ => format!("%{:02X}", b),
+        })
+        .collect()
+}
+
+pub async fn search_tmdb_catalog(
+    client: &Client,
+    config: &AppConfig,
+    api_key: &str,
+    query: &str,
+) -> Result<Vec<RawProgram>> {
+    let encoded = encode_query_component(query.trim());
+    let url = format!(
+        "https://api.themoviedb.org/3/search/multi?api_key={api_key}&query={encoded}&include_adult=false"
+    );
+    let resp = client.get(&url).send().await?;
+    if !resp.status().is_success() {
+        return Ok(Vec::new());
+    }
+    let data: TmdbMultiSearchResponse = match resp.json().await {
+        Ok(v) => v,
+        Err(_) => return Ok(Vec::new()),
+    };
+
+    let sem = Arc::new(Semaphore::new(8));
+    let mut set = JoinSet::new();
+
+    for entry in data.results.into_iter().take(12) {
+        let media_type = match entry.media_type.as_deref() {
+            Some("movie") => MediaType::Movie,
+            Some("tv") => MediaType::Series,
+            _ => continue,
+        };
+        let item = TmdbDiscoverItem {
+            id: entry.id,
+            title: entry.title,
+            name: entry.name,
+            overview: entry.overview,
+            poster_path: entry.poster_path,
+            backdrop_path: entry.backdrop_path,
+            release_date: entry.release_date,
+            first_air_date: entry.first_air_date,
+            vote_average: entry.vote_average,
+            genre_ids: entry.genre_ids,
+        };
+        let permit = sem.clone();
+        let client = client.clone();
+        let config = config.clone();
+        let api_key = api_key.to_string();
+        set.spawn(async move {
+            let _guard = permit.acquire().await.ok()?;
+            enrich_tmdb_item(&client, &config, &api_key, item, media_type, None).await
+        });
+    }
+
+    let mut out = Vec::new();
+    while let Some(res) = set.join_next().await {
+        if let Ok(Some(prog)) = res {
+            out.push(prog);
+        }
+    }
     Ok(out)
 }
 

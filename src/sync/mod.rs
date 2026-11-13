@@ -99,6 +99,62 @@ pub async fn run_sync(
     result
 }
 
+pub async fn search_catalog_and_persist(
+    db: &Database,
+    config: &AppConfig,
+    query: &str,
+) -> anyhow::Result<usize> {
+    let trimmed = query.trim();
+    if trimmed.len() < 2 {
+        return Ok(0);
+    }
+
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .user_agent("ChannelZero/0.1 (local-streaming-dashboard)")
+        .build()?;
+
+    let tmdb_key = config.sources.tmdb.api_key.as_deref().unwrap_or("");
+    let tvmaze_fut = async {
+        if config.sources.tvmaze.enabled {
+            tvmaze::search_tvmaze_shows(&client, config, trimmed)
+                .await
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        }
+    };
+    let tmdb_fut = async {
+        if config.sources.tmdb.enabled && !tmdb_key.is_empty() {
+            tmdb::search_tmdb_catalog(&client, config, tmdb_key, trimmed)
+                .await
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        }
+    };
+
+    let (tvmaze_items, tmdb_items) = tokio::join!(tvmaze_fut, tmdb_fut);
+    let mut all_raw = Vec::with_capacity(tvmaze_items.len() + tmdb_items.len());
+    all_raw.extend(tvmaze_items);
+    all_raw.extend(tmdb_items);
+
+    if all_raw.is_empty() {
+        return Ok(0);
+    }
+
+    let merged = merge_programs(all_raw, config);
+    let count = merged.len();
+    let now_str = Utc::now().to_rfc3339();
+    let mut tx = db.pool.begin().await?;
+    for prog in merged {
+        upsert_merged_program_exec(&mut *tx, prog, &now_str).await?;
+    }
+    tx.commit().await?;
+
+    Ok(count)
+}
+
 async fn run_sync_inner(db: &Database, config: &AppConfig) -> anyhow::Result<()> {
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(20))

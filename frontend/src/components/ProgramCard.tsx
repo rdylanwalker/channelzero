@@ -1,4 +1,4 @@
-import { Bookmark, Check, Eye, EyeOff, Film, Play, Star, Tv } from 'lucide-react'
+import { Bookmark, Check, Clock, Eye, EyeOff, Film, Play, Star, Tv } from 'lucide-react'
 import type { ProgramDto, ProviderMeta } from '../types'
 import { Badge } from './ui/Badge'
 
@@ -62,6 +62,14 @@ export function ProgramCard({
 
         {/* Top-left status badges */}
         <div className="absolute left-2 top-2 flex flex-col gap-1">
+          {program.outside_window && (
+            <Badge
+              variant="outline"
+              className="border-amber-400/50 bg-black/75 text-amber-200 backdrop-blur-md"
+            >
+              <Clock className="h-3 w-3" /> Older than window
+            </Badge>
+          )}
           {program.watched && (
             <Badge variant="success" className="backdrop-blur-md">
               <Check className="h-3 w-3" /> Watched

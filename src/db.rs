@@ -488,6 +488,7 @@ impl Database {
                 watchlist: r.get::<i64, _>("watchlist") != 0,
                 not_interested: r.get::<i64, _>("not_interested") != 0,
                 last_interacted_at: r.get("last_interacted_at"),
+                outside_window: false,
             });
         }
 
@@ -547,6 +548,7 @@ impl Database {
             watchlist: r.get::<i64, _>("watchlist") != 0,
             not_interested: r.get::<i64, _>("not_interested") != 0,
             last_interacted_at: r.get("last_interacted_at"),
+            outside_window: false,
         }))
     }
 

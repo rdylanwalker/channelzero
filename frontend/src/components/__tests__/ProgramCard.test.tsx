@@ -145,4 +145,20 @@ describe('ProgramCard', () => {
     expect(screen.queryByText('Seen')).not.toBeInTheDocument()
     expect(screen.getByTitle('Unmark watched')).toBeInTheDocument()
   })
+
+  it('renders Older than window badge when outside_window is true', () => {
+    render(
+      <ProgramCard
+        program={{ ...baseProgram, outside_window: true }}
+        providerMetaMap={providerMetaMap}
+        onLaunch={vi.fn()}
+        onOpenDetail={vi.fn()}
+        onToggleWatched={vi.fn()}
+        onToggleWatchlist={vi.fn()}
+        onNotInterested={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Older than window')).toBeInTheDocument()
+  })
 })

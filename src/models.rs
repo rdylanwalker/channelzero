@@ -88,6 +88,8 @@ pub struct ProgramDto {
     pub watchlist: bool,
     pub not_interested: bool,
     pub last_interacted_at: Option<String>,
+    #[serde(default)]
+    pub outside_window: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
