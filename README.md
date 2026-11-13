@@ -55,6 +55,12 @@ A locally hosted streaming dashboard that highlights new releases across major s
    docker compose up -d
    ```
 
+   For local development with automatic rebuild & redeploy on file changes:
+
+   ```bash
+   docker compose up --watch --build
+   ```
+
 4. Open your browser to [http://localhost:8080](http://localhost:8080).
 
 ---
