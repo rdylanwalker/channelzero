@@ -85,6 +85,11 @@ e2e: fe-build rust-build
         -v "$PWD:/work" -w /work/playwright \
         {{playwright_image}} sh -c "npm run typecheck && npm run test:e2e"
 
+screenshot: fe-build rust-build
+    docker run --rm --ipc=host --user "$(id -u):$(id -g)" -e HOME=/tmp -e CI=1 \
+        -v "$PWD:/work" -w /work/playwright \
+        {{playwright_image}} npm run screenshot
+
 # --- Aggregate Workflows ---
 
 lint: rust-fmt rust-clippy fe-lint prettier

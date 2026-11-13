@@ -7,7 +7,8 @@
     "node": ">=24"
   },
   "scripts": {
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright test tests/e2e",
+    "screenshot": "playwright test tests/screenshot --project=chromium",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

@@ -4,6 +4,8 @@ A locally hosted streaming dashboard that highlights new releases across major s
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
+![ChannelZero Dashboard](docs/dashboard.png)
+
 ---
 
 ## Features
