@@ -347,4 +347,53 @@ describe('App', () => {
       expect(resetBtn).toBeDisabled()
     })
   })
+
+  it('automatically falls back to catalog search when local search returns no results', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const catalogProgram = {
+      ...mockPrograms[0],
+      id: 'cat-1',
+      title: 'The Legend of Vox Machina',
+      release_date: '2022-01-27',
+      outside_window: true,
+    }
+
+    const baseFetch = makeFetchMock()
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      if (url.startsWith('/api/programs/search')) {
+        return new Response(JSON.stringify([catalogProgram]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      if (url.startsWith('/api/programs') && url.includes('q=vox')) {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      return baseFetch(input, init)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Severance' })
+
+    fireEvent.change(screen.getByPlaceholderText('Search titles or synopses...'), {
+      target: { value: 'vox' },
+    })
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(450)
+    })
+
+    expect(
+      await screen.findByRole('heading', { name: 'The Legend of Vox Machina' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Older than window')).toBeInTheDocument()
+    expect(
+      screen.getByText(/Showing streaming catalog results older than your release window/i),
+    ).toBeInTheDocument()
+  })
 })

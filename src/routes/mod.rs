@@ -63,6 +63,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/config/public", get(public_config))
         .route("/programs", get(programs::list_programs))
+        .route("/programs/search", get(programs::search_programs))
         .route("/programs/{id}", get(programs::get_program))
         .route("/genres", get(programs::list_genres))
         .route(
@@ -728,6 +729,69 @@ mod tests {
 
         // Yield briefly so spawned task completes cleanly before tmp cleanup
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[tokio::test]
+    async fn catalog_search_returns_outside_window_flag_and_skips_short_queries() {
+        let (app, state, tmp) = test_app_with_state().await;
+
+        // Seed an old program outside the 30-day window
+        sqlx::query(
+            r#"
+            INSERT INTO programs (
+                id, dedup_key, title, media_type, release_kind, release_date,
+                release_year, genres_json, providers_json, primary_url,
+                ratings_json, sources_json, updated_at
+            ) VALUES (
+                'old-1', 'vox machina|2022|series', 'The Legend of Vox Machina',
+                'series', 'new_title', '2022-01-27', 2022,
+                '["Fantasy"]', '[]', 'https://example.com', '[]', '["TVmaze"]', '2026-01-01T00:00:00Z'
+            )
+            "#,
+        )
+        .execute(&state.db.pool)
+        .await
+        .unwrap();
+
+        // Short query (< 2 chars) returns empty
+        let short_res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/programs/search?q=v")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(short_res.status(), StatusCode::OK);
+        let short_bytes = axum::body::to_bytes(short_res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let short_list: Vec<crate::models::ProgramDto> =
+            serde_json::from_slice(&short_bytes).unwrap();
+        assert!(short_list.is_empty());
+
+        // Matching query returns the old program with outside_window = true
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/programs/search?q=vox")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let list: Vec<crate::models::ProgramDto> = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, "old-1");
+        assert!(list[0].outside_window);
+
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }

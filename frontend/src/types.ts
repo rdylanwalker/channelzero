@@ -39,6 +39,7 @@ export interface ProgramDto {
   watchlist: boolean
   not_interested: boolean
   last_interacted_at: string | null
+  outside_window?: boolean
 }
 
 export interface Profile {

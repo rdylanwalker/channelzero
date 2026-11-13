@@ -10,6 +10,11 @@ use crate::models::{MediaType, ProviderLink, ReleaseKind, SourceRating};
 use crate::sync::RawProgram;
 
 #[derive(Debug, Deserialize)]
+struct TvMazeSearchEntry {
+    show: TvMazeShow,
+}
+
+#[derive(Debug, Deserialize)]
 struct TvMazeScheduleEntry {
     name: Option<String>,
     season: Option<i32>,
@@ -154,17 +159,6 @@ pub async fn fetch_tvmaze_releases(
                 None => continue,
             };
 
-            let channel_name = show
-                .web_channel
-                .as_ref()
-                .map(|c| c.name.as_str())
-                .or_else(|| show.network.as_ref().map(|c| c.name.as_str()));
-
-            let slug = match channel_name.and_then(tvmaze_channel_to_slug) {
-                Some(s) if config.providers.iter().any(|p| p == s) => s,
-                _ => continue,
-            };
-
             let airdate = entry.airdate.unwrap_or_else(|| date_str.clone());
             let release_kind = match (entry.season, entry.number) {
                 (Some(1), Some(1)) => ReleaseKind::NewTitle,
@@ -176,70 +170,16 @@ pub async fn fetch_tvmaze_releases(
                 _ => entry.name,
             };
 
-            let release_year = show
-                .premiered
-                .as_deref()
-                .and_then(|p| p.get(0..4))
-                .and_then(|y| y.parse::<i32>().ok());
-
-            let provider_meta = provider_meta_by_id(slug);
-            let provider_name = provider_meta
-                .map(|m| m.name)
-                .unwrap_or_else(|| slug.to_string());
-
-            let (watch_url, is_direct) = match show.official_site.as_deref() {
-                Some(site) if matches_provider_domain(site, slug) => (site.to_string(), true),
-                _ => (provider_search_url(slug, &show.name), false),
-            };
-
-            let fallback_url = show
-                .url
-                .clone()
-                .unwrap_or_else(|| format!("https://www.tvmaze.com/shows/{}", show.id));
-
-            let mut ratings = Vec::new();
-            let avg_rating = show.rating.as_ref().and_then(|r| r.average);
-            if let Some(r) = avg_rating {
-                ratings.push(SourceRating {
-                    source: "TVmaze".into(),
-                    score: format!("{r:.1}/10"),
-                    normalized_10: Some(r),
-                });
-            }
-
-            let poster_url = show
-                .image
-                .as_ref()
-                .and_then(|i| i.medium.clone().or_else(|| i.original.clone()));
-
-            let program = RawProgram {
-                title: show.name,
-                media_type: MediaType::Series,
-                release_kind,
-                release_date: airdate,
-                release_year,
-                episode_info,
-                synopsis: show.summary.as_deref().map(strip_html),
-                poster_url,
-                backdrop_url: None,
-                genres: show.genres.unwrap_or_default(),
-                providers: vec![ProviderLink {
-                    id: slug.to_string(),
-                    name: provider_name,
-                    url: watch_url,
-                    is_direct,
-                }],
-                fallback_url,
-                ratings,
-                source: "TVmaze".into(),
-                imdb_id: show.externals.and_then(|e| e.imdb),
-                tmdb_id: None,
-                tvmaze_id: Some(show.id),
+            let show_id = show.id;
+            let Some(program) =
+                tvmaze_show_to_raw(show, release_kind, airdate, episode_info, config)
+            else {
+                continue;
             };
 
             // Keep the most recent airdate per show
             dedup
-                .entry(show.id)
+                .entry(show_id)
                 .and_modify(|existing| {
                     if program.release_date > existing.release_date {
                         *existing = program.clone();
@@ -250,4 +190,123 @@ pub async fn fetch_tvmaze_releases(
     }
 
     Ok(dedup.into_values().collect())
+}
+
+fn encode_query_component(input: &str) -> String {
+    input
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            b' ' => "+".to_string(),
+            _ => format!("%{:02X}", b),
+        })
+        .collect()
+}
+
+pub async fn search_tvmaze_shows(
+    client: &Client,
+    config: &AppConfig,
+    query: &str,
+) -> Result<Vec<RawProgram>> {
+    let encoded = encode_query_component(query.trim());
+    let url = format!("https://api.tvmaze.com/search/shows?q={encoded}");
+    let resp = client.get(&url).send().await?;
+    if !resp.status().is_success() {
+        return Ok(Vec::new());
+    }
+    let entries: Vec<TvMazeSearchEntry> = resp.json().await.unwrap_or_default();
+    let mut out = Vec::new();
+    for entry in entries.into_iter().take(15) {
+        let Some(premiered) = entry.show.premiered.clone().filter(|d| !d.is_empty()) else {
+            continue;
+        };
+        if let Some(prog) =
+            tvmaze_show_to_raw(entry.show, ReleaseKind::NewTitle, premiered, None, config)
+        {
+            out.push(prog);
+        }
+    }
+    Ok(out)
+}
+
+fn tvmaze_show_to_raw(
+    show: TvMazeShow,
+    release_kind: ReleaseKind,
+    release_date: String,
+    episode_info: Option<String>,
+    config: &AppConfig,
+) -> Option<RawProgram> {
+    let channel_name = show
+        .web_channel
+        .as_ref()
+        .map(|c| c.name.as_str())
+        .or_else(|| show.network.as_ref().map(|c| c.name.as_str()));
+
+    let slug = match channel_name.and_then(tvmaze_channel_to_slug) {
+        Some(s) if config.providers.iter().any(|p| p == s) => s,
+        _ => return None,
+    };
+
+    let release_year = show
+        .premiered
+        .as_deref()
+        .and_then(|p| p.get(0..4))
+        .and_then(|y| y.parse::<i32>().ok());
+
+    let provider_meta = provider_meta_by_id(slug);
+    let provider_name = provider_meta
+        .map(|m| m.name)
+        .unwrap_or_else(|| slug.to_string());
+
+    let (watch_url, is_direct) = match show.official_site.as_deref() {
+        Some(site) if matches_provider_domain(site, slug) => (site.to_string(), true),
+        _ => (provider_search_url(slug, &show.name), false),
+    };
+
+    let fallback_url = show
+        .url
+        .clone()
+        .unwrap_or_else(|| format!("https://www.tvmaze.com/shows/{}", show.id));
+
+    let mut ratings = Vec::new();
+    let avg_rating = show.rating.as_ref().and_then(|r| r.average);
+    if let Some(r) = avg_rating {
+        ratings.push(SourceRating {
+            source: "TVmaze".into(),
+            score: format!("{r:.1}/10"),
+            normalized_10: Some(r),
+        });
+    }
+
+    let poster_url = show
+        .image
+        .as_ref()
+        .and_then(|i| i.medium.clone().or_else(|| i.original.clone()));
+
+    Some(RawProgram {
+        title: show.name,
+        media_type: MediaType::Series,
+        release_kind,
+        release_date,
+        release_year,
+        episode_info,
+        synopsis: show.summary.as_deref().map(strip_html),
+        poster_url,
+        backdrop_url: None,
+        genres: show.genres.unwrap_or_default(),
+        providers: vec![ProviderLink {
+            id: slug.to_string(),
+            name: provider_name,
+            url: watch_url,
+            is_direct,
+        }],
+        fallback_url,
+        ratings,
+        source: "TVmaze".into(),
+        imdb_id: show.externals.and_then(|e| e.imdb),
+        tmdb_id: None,
+        tvmaze_id: Some(show.id),
+    })
 }

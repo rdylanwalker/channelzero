@@ -9,6 +9,7 @@ import {
   listGenres,
   listProfiles,
   listPrograms,
+  searchProgramsCatalog,
   triggerSyncRefresh,
   unhideGenre,
   updateInteraction,
@@ -41,6 +42,8 @@ export function App() {
   const [availableGenres, setAvailableGenres] = useState<string[]>([])
   const [hiddenState, setHiddenState] = useState<ProfileHiddenState | null>(null)
   const [loading, setLoading] = useState(true)
+  const [catalogSearching, setCatalogSearching] = useState(false)
+  const [isCatalogFallback, setIsCatalogFallback] = useState(false)
 
   // Filters state
   const [q, setQ] = useState('')
@@ -98,6 +101,8 @@ export function App() {
   // Fetch programs, available genres & hidden state for active profile
   const refreshPrograms = useCallback(async () => {
     if (!activeProfileId) return
+    setIsCatalogFallback(false)
+    setCatalogSearching(false)
     try {
       const [progs, hidden, genres] = await Promise.all([
         listPrograms({
@@ -159,6 +164,62 @@ export function App() {
       await refreshPrograms()
     })()
   }, [refreshPrograms])
+
+  // Automatic debounced catalog fallback when local search returns 0 results
+  useEffect(() => {
+    const trimmed = q.trim()
+    if (loading || programs.length > 0 || trimmed.length < 2 || !activeProfileId) {
+      return
+    }
+
+    let cancelled = false
+    const timer = setTimeout(async () => {
+      setCatalogSearching(true)
+      try {
+        const results = await searchProgramsCatalog({
+          profileId: activeProfileId,
+          q: trimmed,
+          provider: selectedProvider,
+          mediaType,
+          releaseKind,
+          genre,
+          status,
+          minRating,
+          sort,
+          order,
+        })
+        if (!cancelled && results.length > 0) {
+          setPrograms(results)
+          setVisibleCount(24)
+          setIsCatalogFallback(true)
+        }
+      } catch (err) {
+        console.error('Catalog search fallback error:', err)
+      } finally {
+        if (!cancelled) {
+          setCatalogSearching(false)
+        }
+      }
+    }, 400)
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [
+    loading,
+    programs.length,
+    activeProfileId,
+    q,
+    selectedProvider,
+    mediaType,
+    releaseKind,
+    genre,
+    status,
+    minRating,
+    sort,
+    order,
+  ])
 
   // Reset pagination and scroll back to top whenever a filter, sort, or profile changes
   useEffect(() => {
@@ -351,9 +412,12 @@ export function App() {
       </div>
 
       <main className="mx-auto max-w-7xl space-y-6 px-4 pb-6 pt-3">
-        {loading ? (
-          <div className="flex h-64 items-center justify-center">
+        {loading || catalogSearching ? (
+          <div className="flex h-64 flex-col items-center justify-center gap-3">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+            {catalogSearching && (
+              <p className="text-xs text-muted-foreground">Searching streaming catalog...</p>
+            )}
           </div>
         ) : programs.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border p-12 text-center">
@@ -364,6 +428,12 @@ export function App() {
           </div>
         ) : (
           <>
+            {isCatalogFallback && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-200">
+                No recent releases matched locally. Showing streaming catalog results older than
+                your release window.
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
               {visiblePrograms.map((p) => (
                 <ProgramCard

@@ -38,7 +38,7 @@ export interface ProgramFilters {
   order?: string
 }
 
-export function listPrograms(filters: ProgramFilters): Promise<ProgramDto[]> {
+function buildProgramQuery(filters: ProgramFilters): URLSearchParams {
   const params = new URLSearchParams()
   params.set('profile_id', filters.profileId)
   if (filters.q) params.set('q', filters.q)
@@ -51,8 +51,15 @@ export function listPrograms(filters: ProgramFilters): Promise<ProgramDto[]> {
   if (filters.minRating && filters.minRating !== 'all') params.set('min_rating', filters.minRating)
   if (filters.sort) params.set('sort', filters.sort)
   if (filters.order) params.set('order', filters.order)
+  return params
+}
 
-  return apiFetch<ProgramDto[]>(`/api/programs?${params.toString()}`)
+export function listPrograms(filters: ProgramFilters): Promise<ProgramDto[]> {
+  return apiFetch<ProgramDto[]>(`/api/programs?${buildProgramQuery(filters).toString()}`)
+}
+
+export function searchProgramsCatalog(filters: ProgramFilters): Promise<ProgramDto[]> {
+  return apiFetch<ProgramDto[]>(`/api/programs/search?${buildProgramQuery(filters).toString()}`)
 }
 
 export function listGenres(profileId: string): Promise<string[]> {

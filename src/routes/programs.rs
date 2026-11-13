@@ -10,6 +10,7 @@ use std::collections::HashSet;
 
 use crate::models::ProgramDto;
 use crate::routes::AppState;
+use crate::sync;
 
 #[derive(Debug, Deserialize)]
 pub struct ProgramsQuery {
@@ -52,6 +53,66 @@ pub async fn list_programs(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    filter_and_sort_programs(&state, profile_id, &params, &mut programs).await?;
+    Ok(Json(programs))
+}
+
+pub async fn search_programs(
+    State(state): State<AppState>,
+    Query(params): Query<ProgramsQuery>,
+) -> Result<Json<Vec<ProgramDto>>, (StatusCode, String)> {
+    let profile_id = params.profile_id.as_deref().unwrap_or("default");
+    let q_trimmed = params.q.as_deref().unwrap_or("").trim();
+    if q_trimmed.len() < 2 {
+        return Ok(Json(Vec::new()));
+    }
+
+    let profile = state
+        .db
+        .get_profile(profile_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let mut effective_config = state.config.clone();
+    if let Some(region) = profile.as_ref().and_then(|p| p.region.clone()) {
+        effective_config.region = region;
+    }
+
+    if let Err(e) = sync::search_catalog_and_persist(&state.db, &effective_config, q_trimmed).await
+    {
+        tracing::warn!("Catalog search upstream error for '{q_trimmed}': {e}");
+    }
+
+    let profile_days = profile
+        .and_then(|p| p.new_release_days)
+        .unwrap_or(state.config.new_release_days);
+    let tz: Tz = state.config.timezone.parse().unwrap_or(chrono_tz::UTC);
+    let today = Utc::now().with_timezone(&tz).date_naive();
+    let min_date = (today - Duration::days(profile_days as i64))
+        .format("%Y-%m-%d")
+        .to_string();
+
+    let mut programs = state
+        .db
+        .get_programs_for_profile(profile_id, "0000-01-01")
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    filter_and_sort_programs(&state, profile_id, &params, &mut programs).await?;
+
+    for p in &mut programs {
+        p.outside_window = p.release_date < min_date;
+    }
+
+    Ok(Json(programs))
+}
+
+async fn filter_and_sort_programs(
+    state: &AppState,
+    profile_id: &str,
+    params: &ProgramsQuery,
+    programs: &mut Vec<ProgramDto>,
+) -> Result<(), (StatusCode, String)> {
     let hidden_state = state
         .db
         .get_hidden_state(profile_id)
@@ -185,7 +246,7 @@ pub async fn list_programs(
         }
     });
 
-    Ok(Json(programs))
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]
