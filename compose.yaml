@@ -1,6 +1,6 @@
 services:
   channelzero:
-    image: channelzero:latest
+    image: ghcr.io/rdylanwalker/channelzero:latest
     build:
       context: .
       dockerfile: Dockerfile
