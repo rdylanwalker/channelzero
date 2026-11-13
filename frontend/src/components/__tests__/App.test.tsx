@@ -396,4 +396,35 @@ describe('App', () => {
       screen.getByText(/Showing streaming catalog results older than your release window/i),
     ).toBeInTheDocument()
   })
+
+  it('persists filters in localStorage per profile and restores them when switching profiles', async () => {
+    const fetchMock = makeFetchMock()
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Severance' })
+
+    // Select Netflix provider and multi-select Sci-Fi genre on default profile
+    fireEvent.click(screen.getByRole('button', { name: 'Netflix' }))
+    fireEvent.click(screen.getByLabelText('Filter by genres'))
+    fireEvent.click(screen.getByLabelText('Sci-Fi'))
+
+    await waitFor(() => {
+      const saved = JSON.parse(localStorage.getItem('channelzero_filters_default') ?? '{}')
+      expect(saved.selectedProvider).toBe('netflix')
+      expect(saved.genres).toEqual(['Sci-Fi'])
+    })
+
+    // Switch to alice -> filters reset to alice's saved/default state
+    fireEvent.change(screen.getByLabelText('Active profile'), { target: { value: 'alice' } })
+    await waitFor(() => {
+      expect(screen.getByLabelText('Filter by genres')).toHaveTextContent('All Genres')
+    })
+
+    // Switch back to default -> default's filters are restored
+    fireEvent.change(screen.getByLabelText('Active profile'), { target: { value: 'default' } })
+    await waitFor(() => {
+      expect(screen.getByLabelText('Filter by genres')).toHaveTextContent('Sci-Fi')
+    })
+  })
 })

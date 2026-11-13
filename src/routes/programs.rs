@@ -185,12 +185,22 @@ async fn filter_and_sort_programs(
             }
         }
 
-        if let Some(g) = params
+        if let Some(g_param) = params
             .genre
             .as_deref()
             .filter(|s| !s.is_empty() && *s != "all")
         {
-            if !p.genres.iter().any(|pg| pg.eq_ignore_ascii_case(g)) {
+            let selected: Vec<&str> = g_param
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("all"))
+                .collect();
+            if !selected.is_empty()
+                && !p
+                    .genres
+                    .iter()
+                    .any(|pg| selected.iter().any(|sg| pg.eq_ignore_ascii_case(sg)))
+            {
                 return false;
             }
         }

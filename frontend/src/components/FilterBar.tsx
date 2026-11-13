@@ -1,4 +1,5 @@
-import { ArrowDownUp, RotateCcw, Search } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ArrowDownUp, Check, ChevronDown, RotateCcw, Search } from 'lucide-react'
 import type { ProviderMeta } from '../types'
 import { Button } from './ui/Button'
 import { Input } from './ui/Input'
@@ -14,8 +15,8 @@ interface FilterBarProps {
   onMediaTypeChange: (v: string) => void
   releaseKind: string
   onReleaseKindChange: (v: string) => void
-  genre: string
-  onGenreChange: (v: string) => void
+  genres: string[]
+  onGenresChange: (v: string[]) => void
   availableGenres: string[]
   status: string
   onStatusChange: (v: string) => void
@@ -39,8 +40,8 @@ export function FilterBar({
   onMediaTypeChange,
   releaseKind,
   onReleaseKindChange,
-  genre,
-  onGenreChange,
+  genres,
+  onGenresChange,
   availableGenres,
   status,
   onStatusChange,
@@ -53,12 +54,50 @@ export function FilterBar({
   onResetFilters,
   totalCount,
 }: FilterBarProps) {
+  const [genreOpen, setGenreOpen] = useState(false)
+  const genreMenuRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!genreOpen) return
+    const handleMouseDown = (e: MouseEvent) => {
+      if (genreMenuRef.current && !genreMenuRef.current.contains(e.target as Node)) {
+        setGenreOpen(false)
+      }
+    }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setGenreOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleMouseDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleMouseDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [genreOpen])
+
+  const toggleGenre = (g: string) => {
+    if (genres.includes(g)) {
+      onGenresChange(genres.filter((item) => item !== g))
+    } else {
+      onGenresChange([...genres, g])
+    }
+  }
+
+  const genreLabel =
+    genres.length === 0
+      ? 'All Genres'
+      : genres.length === 1
+        ? genres[0]
+        : `Genres (${genres.length})`
+
   const hasActiveFilters =
     q !== '' ||
     selectedProvider !== 'all' ||
     mediaType !== 'all' ||
     releaseKind !== 'all' ||
-    genre !== 'all' ||
+    genres.length > 0 ||
     status !== 'all' ||
     minRating !== 'all' ||
     sort !== 'release_date' ||
@@ -90,14 +129,73 @@ export function FilterBar({
             <option value="series">TV Series</option>
           </Select>
 
-          <Select value={genre} onChange={(e) => onGenreChange(e.target.value)}>
-            <option value="all">All Genres</option>
-            {availableGenres.map((g) => (
-              <option key={g} value={g}>
-                {g}
-              </option>
-            ))}
-          </Select>
+          <div className="relative" ref={genreMenuRef}>
+            <button
+              type="button"
+              onClick={() => setGenreOpen((prev) => !prev)}
+              aria-label="Filter by genres"
+              aria-expanded={genreOpen}
+              className={`flex h-9 items-center justify-between gap-2 rounded-md border px-3 py-1 text-sm shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                genres.length > 0
+                  ? 'border-accent bg-accent/15 text-foreground'
+                  : 'border-input bg-muted/60 text-foreground hover:bg-muted'
+              }`}
+            >
+              <span className="truncate max-w-[120px]">{genreLabel}</span>
+              <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+            </button>
+
+            {genreOpen && (
+              <div className="absolute left-0 top-full z-40 mt-1 w-52 rounded-lg border border-border bg-card p-1.5 shadow-xl">
+                <div className="flex items-center justify-between border-b border-border/60 px-2 pb-1.5 mb-1">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Genres
+                  </span>
+                  {genres.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => onGenresChange([])}
+                      className="text-[11px] text-accent hover:underline"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <div className="max-h-56 overflow-y-auto space-y-0.5">
+                  {availableGenres.length === 0 ? (
+                    <p className="px-2 py-1.5 text-xs text-muted-foreground">No genres available</p>
+                  ) : (
+                    availableGenres.map((g) => {
+                      const checked = genres.includes(g)
+                      return (
+                        <label
+                          key={g}
+                          className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs text-foreground hover:bg-muted"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleGenre(g)}
+                            className="sr-only"
+                          />
+                          <span
+                            className={`flex h-4 w-4 items-center justify-center rounded border ${
+                              checked
+                                ? 'border-accent bg-accent text-white'
+                                : 'border-border bg-background'
+                            }`}
+                          >
+                            {checked && <Check className="h-3 w-3" />}
+                          </span>
+                          <span className="truncate">{g}</span>
+                        </label>
+                      )
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
 
           <Select value={status} onChange={(e) => onStatusChange(e.target.value)}>
             <option value="all">Any Status</option>

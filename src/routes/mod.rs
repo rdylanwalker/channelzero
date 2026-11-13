@@ -638,6 +638,25 @@ mod tests {
             .unwrap();
         assert_eq!(default_sort.status(), StatusCode::OK);
 
+        // Multi-select comma-separated genres
+        let multi_genre = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/programs?include_hidden=true&genre=Drama,Sci-Fi")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(multi_genre.status(), StatusCode::OK);
+        let multi_bytes = axum::body::to_bytes(multi_genre.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let multi_list: Vec<crate::models::ProgramDto> =
+            serde_json::from_slice(&multi_bytes).unwrap();
+        assert!(!multi_list.is_empty());
+
         // GET /api/programs/:id (found & 404)
         let get_one = app
             .clone()

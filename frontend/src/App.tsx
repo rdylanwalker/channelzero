@@ -30,10 +30,67 @@ import type {
   SyncStatusResponse,
 } from './types'
 
+interface PersistedFilters {
+  q: string
+  selectedProvider: string
+  mediaType: string
+  releaseKind: string
+  genres: string[]
+  status: string
+  minRating: string
+  sort: string
+  order: 'asc' | 'desc'
+}
+
+const DEFAULT_FILTERS: PersistedFilters = {
+  q: '',
+  selectedProvider: 'all',
+  mediaType: 'all',
+  releaseKind: 'all',
+  genres: [],
+  status: 'all',
+  minRating: 'all',
+  sort: 'release_date',
+  order: 'desc',
+}
+
+function loadFiltersForProfile(profileId: string): PersistedFilters {
+  try {
+    const raw = localStorage.getItem(`channelzero_filters_${profileId}`)
+    if (!raw) return DEFAULT_FILTERS
+    const parsed = JSON.parse(raw) as Partial<PersistedFilters>
+    return {
+      q: typeof parsed.q === 'string' ? parsed.q : DEFAULT_FILTERS.q,
+      selectedProvider:
+        typeof parsed.selectedProvider === 'string'
+          ? parsed.selectedProvider
+          : DEFAULT_FILTERS.selectedProvider,
+      mediaType:
+        typeof parsed.mediaType === 'string' ? parsed.mediaType : DEFAULT_FILTERS.mediaType,
+      releaseKind:
+        typeof parsed.releaseKind === 'string' ? parsed.releaseKind : DEFAULT_FILTERS.releaseKind,
+      genres: Array.isArray(parsed.genres)
+        ? parsed.genres.filter((g): g is string => typeof g === 'string')
+        : DEFAULT_FILTERS.genres,
+      status: typeof parsed.status === 'string' ? parsed.status : DEFAULT_FILTERS.status,
+      minRating:
+        typeof parsed.minRating === 'string' ? parsed.minRating : DEFAULT_FILTERS.minRating,
+      sort: typeof parsed.sort === 'string' ? parsed.sort : DEFAULT_FILTERS.sort,
+      order:
+        parsed.order === 'asc' || parsed.order === 'desc' ? parsed.order : DEFAULT_FILTERS.order,
+    }
+  } catch {
+    return DEFAULT_FILTERS
+  }
+}
+
 export function App() {
+  const initialProfileId = localStorage.getItem('channelzero_profile') ?? 'default'
+  const initialFilters = useMemo(() => loadFiltersForProfile(initialProfileId), [initialProfileId])
+
   const [config, setConfig] = useState<PublicConfig | null>(null)
   const [profiles, setProfiles] = useState<Profile[]>([])
-  const [activeProfileId, setActiveProfileId] = useState<string>('default')
+  const [activeProfileId, setActiveProfileId] = useState<string>(initialProfileId)
   const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null)
   const [programs, setPrograms] = useState<ProgramDto[]>([])
   const [visibleCount, setVisibleCount] = useState(24)
@@ -45,16 +102,16 @@ export function App() {
   const [catalogSearching, setCatalogSearching] = useState(false)
   const [isCatalogFallback, setIsCatalogFallback] = useState(false)
 
-  // Filters state
-  const [q, setQ] = useState('')
-  const [selectedProvider, setSelectedProvider] = useState('all')
-  const [mediaType, setMediaType] = useState('all')
-  const [releaseKind, setReleaseKind] = useState('all')
-  const [genre, setGenre] = useState('all')
-  const [status, setStatus] = useState('all')
-  const [minRating, setMinRating] = useState('all')
-  const [sort, setSort] = useState('release_date')
-  const [order, setOrder] = useState<'asc' | 'desc'>('desc')
+  // Filters state (persisted per profile in localStorage)
+  const [q, setQ] = useState(initialFilters.q)
+  const [selectedProvider, setSelectedProvider] = useState(initialFilters.selectedProvider)
+  const [mediaType, setMediaType] = useState(initialFilters.mediaType)
+  const [releaseKind, setReleaseKind] = useState(initialFilters.releaseKind)
+  const [genres, setGenres] = useState<string[]>(initialFilters.genres)
+  const [status, setStatus] = useState(initialFilters.status)
+  const [minRating, setMinRating] = useState(initialFilters.minRating)
+  const [sort, setSort] = useState(initialFilters.sort)
+  const [order, setOrder] = useState<'asc' | 'desc'>(initialFilters.order)
 
   // Modals state
   const [selectedProgram, setSelectedProgram] = useState<ProgramDto | null>(null)
@@ -72,6 +129,18 @@ export function App() {
     return map
   }, [config])
 
+  const applyFilters = useCallback((f: PersistedFilters) => {
+    setQ(f.q)
+    setSelectedProvider(f.selectedProvider)
+    setMediaType(f.mediaType)
+    setReleaseKind(f.releaseKind)
+    setGenres(f.genres)
+    setStatus(f.status)
+    setMinRating(f.minRating)
+    setSort(f.sort)
+    setOrder(f.order)
+  }, [])
+
   // Initial bootstrap
   useEffect(() => {
     async function init() {
@@ -86,16 +155,20 @@ export function App() {
         setSyncStatus(sync)
 
         const savedProfile = localStorage.getItem('channelzero_profile')
-        if (savedProfile && profs.some((p) => p.id === savedProfile)) {
-          setActiveProfileId(savedProfile)
-        } else if (profs.length > 0) {
-          setActiveProfileId(profs[0].id)
+        const targetId =
+          savedProfile && profs.some((p) => p.id === savedProfile)
+            ? savedProfile
+            : (profs[0]?.id ?? 'default')
+        if (targetId !== activeProfileId) {
+          setActiveProfileId(targetId)
+          applyFilters(loadFiltersForProfile(targetId))
         }
       } catch (err) {
         console.error('Initialization error:', err)
       }
     }
     init()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Fetch programs, available genres & hidden state for active profile
@@ -104,14 +177,14 @@ export function App() {
     setIsCatalogFallback(false)
     setCatalogSearching(false)
     try {
-      const [progs, hidden, genres] = await Promise.all([
+      const [progs, hidden, availableGenreList] = await Promise.all([
         listPrograms({
           profileId: activeProfileId,
           q,
           provider: selectedProvider,
           mediaType,
           releaseKind,
-          genre,
+          genre: genres,
           status,
           minRating,
           sort,
@@ -123,7 +196,7 @@ export function App() {
       setPrograms(progs)
       setVisibleCount(24)
       setHiddenState(hidden)
-      setAvailableGenres(genres)
+      setAvailableGenres(availableGenreList)
     } catch (err) {
       console.error('Failed to load programs:', err)
     } finally {
@@ -135,7 +208,7 @@ export function App() {
     selectedProvider,
     mediaType,
     releaseKind,
-    genre,
+    genres,
     status,
     minRating,
     sort,
@@ -182,7 +255,7 @@ export function App() {
           provider: selectedProvider,
           mediaType,
           releaseKind,
-          genre,
+          genre: genres,
           status,
           minRating,
           sort,
@@ -214,7 +287,39 @@ export function App() {
     selectedProvider,
     mediaType,
     releaseKind,
-    genre,
+    genres,
+    status,
+    minRating,
+    sort,
+    order,
+  ])
+
+  // Persist filters per profile in localStorage
+  useEffect(() => {
+    if (!activeProfileId) return
+    try {
+      const payload: PersistedFilters = {
+        q,
+        selectedProvider,
+        mediaType,
+        releaseKind,
+        genres,
+        status,
+        minRating,
+        sort,
+        order,
+      }
+      localStorage.setItem(`channelzero_filters_${activeProfileId}`, JSON.stringify(payload))
+    } catch {
+      // ignore storage quota/privacy errors
+    }
+  }, [
+    activeProfileId,
+    q,
+    selectedProvider,
+    mediaType,
+    releaseKind,
+    genres,
     status,
     minRating,
     sort,
@@ -237,7 +342,7 @@ export function App() {
     selectedProvider,
     mediaType,
     releaseKind,
-    genre,
+    genres,
     status,
     minRating,
     sort,
@@ -245,20 +350,13 @@ export function App() {
   ])
 
   const handleResetFilters = () => {
-    setQ('')
-    setSelectedProvider('all')
-    setMediaType('all')
-    setReleaseKind('all')
-    setGenre('all')
-    setStatus('all')
-    setMinRating('all')
-    setSort('release_date')
-    setOrder('desc')
+    applyFilters(DEFAULT_FILTERS)
   }
 
   const handleSelectProfile = (id: string) => {
     setActiveProfileId(id)
     localStorage.setItem('channelzero_profile', id)
+    applyFilters(loadFiltersForProfile(id))
   }
 
   const handleCreateProfile = async (name: string) => {
@@ -394,8 +492,8 @@ export function App() {
             onMediaTypeChange={setMediaType}
             releaseKind={releaseKind}
             onReleaseKindChange={setReleaseKind}
-            genre={genre}
-            onGenreChange={setGenre}
+            genres={genres}
+            onGenresChange={setGenres}
             availableGenres={availableGenres}
             status={status}
             onStatusChange={setStatus}
