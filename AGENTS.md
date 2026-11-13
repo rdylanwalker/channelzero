@@ -63,3 +63,4 @@ ChannelZero is a locally hosted streaming dashboard that highlights new releases
 - **Keep Changes Focused**: Make minimal, well-scoped edits. Keep Rust and TypeScript code idiomatic, modular, and cleanly typed.
 - **Document as You Build**: Update `README.md`, `.env.example`, and `config.schema.json` whenever you add environment variables, config fields, container options, ports, or build/run commands.
 - **Validate Changes**: Run `cargo test`, `cargo clippy`, frontend type-check/build/lint, and container build checks after making changes, and report what was verified.
+- **Use Conventional Commits**: Releases are automated with `semantic-release` (`.releaserc.json`), so all commit messages MUST follow Conventional Commits (`feat(scope): ...`, `fix(scope): ...`, `perf(scope): ...`, `docs(scope): ...`, `test(scope): ...`, `chore(scope): ...`). Use `feat:` / `fix:` / `perf:` for changes that should trigger a release.
