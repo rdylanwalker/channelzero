@@ -29,14 +29,15 @@ test.describe('ChannelZero Dashboard E2E', () => {
     await searchInput.fill('')
     await expect(page.getByText('4 programs')).toBeVisible()
 
-    // Genre filter bug regression: selecting Comedy must not remove Sci-Fi or Drama from dropdown
-    const genreSelect = page.locator('select', { has: page.locator('option[value="Comedy"]') })
-    await genreSelect.selectOption('Comedy')
+    // Multi-select genre filter: selecting Comedy must not remove Sci-Fi or Drama from dropdown
+    await page.getByLabel('Filter by genres').click()
+    await page.getByText('Comedy', { exact: true }).click()
     await expect(page.getByText('1 program')).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Laugh Track' })).toBeVisible()
-    await expect(genreSelect.locator('option[value="Sci-Fi"]')).toBeAttached()
-    await expect(genreSelect.locator('option[value="Drama"]')).toBeAttached()
-    await genreSelect.selectOption('all')
+    await expect(page.getByText('Sci-Fi', { exact: true })).toBeVisible()
+    await expect(page.getByText('Drama', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Clear' }).click()
+    await page.keyboard.press('Escape')
     await expect(page.getByText('4 programs')).toBeVisible()
 
     // Provider pill filter

@@ -31,7 +31,7 @@ export interface ProgramFilters {
   provider?: string
   mediaType?: string
   releaseKind?: string
-  genre?: string
+  genre?: string | string[]
   status?: string
   minRating?: string
   sort?: string
@@ -46,7 +46,11 @@ function buildProgramQuery(filters: ProgramFilters): URLSearchParams {
   if (filters.mediaType && filters.mediaType !== 'all') params.set('media_type', filters.mediaType)
   if (filters.releaseKind && filters.releaseKind !== 'all')
     params.set('release_kind', filters.releaseKind)
-  if (filters.genre && filters.genre !== 'all') params.set('genre', filters.genre)
+  if (Array.isArray(filters.genre)) {
+    if (filters.genre.length > 0) params.set('genre', filters.genre.join(','))
+  } else if (filters.genre && filters.genre !== 'all') {
+    params.set('genre', filters.genre)
+  }
   if (filters.status && filters.status !== 'all') params.set('status', filters.status)
   if (filters.minRating && filters.minRating !== 'all') params.set('min_rating', filters.minRating)
   if (filters.sort) params.set('sort', filters.sort)

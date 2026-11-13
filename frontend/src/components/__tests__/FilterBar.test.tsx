@@ -21,8 +21,8 @@ describe('FilterBar', () => {
         onMediaTypeChange={vi.fn()}
         releaseKind="all"
         onReleaseKindChange={vi.fn()}
-        genre="Drama"
-        onGenreChange={vi.fn()}
+        genres={['Drama']}
+        onGenresChange={vi.fn()}
         availableGenres={['Action', 'Comedy', 'Drama', 'Sci-Fi']}
         status="all"
         onStatusChange={vi.fn()}
@@ -39,11 +39,11 @@ describe('FilterBar', () => {
 
     expect(screen.getByRole('button', { name: 'Reset Filters' })).not.toBeDisabled()
 
-    expect(screen.getByRole('option', { name: 'All Genres' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'Action' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'Comedy' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'Drama' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'Sci-Fi' })).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('Filter by genres'))
+    expect(screen.getByLabelText('Action')).toBeInTheDocument()
+    expect(screen.getByLabelText('Comedy')).toBeInTheDocument()
+    expect(screen.getByLabelText('Drama')).toBeInTheDocument()
+    expect(screen.getByLabelText('Sci-Fi')).toBeInTheDocument()
     expect(screen.getByText('1 program')).toBeInTheDocument()
   })
 
@@ -52,7 +52,7 @@ describe('FilterBar', () => {
     const onProviderChange = vi.fn()
     const onMediaTypeChange = vi.fn()
     const onReleaseKindChange = vi.fn()
-    const onGenreChange = vi.fn()
+    const onGenresChange = vi.fn()
     const onStatusChange = vi.fn()
     const onMinRatingChange = vi.fn()
     const onSortChange = vi.fn()
@@ -70,8 +70,8 @@ describe('FilterBar', () => {
         onMediaTypeChange={onMediaTypeChange}
         releaseKind="all"
         onReleaseKindChange={onReleaseKindChange}
-        genre="all"
-        onGenreChange={onGenreChange}
+        genres={[]}
+        onGenresChange={onGenresChange}
         availableGenres={['Action', 'Drama']}
         status="all"
         onStatusChange={onStatusChange}
@@ -99,8 +99,9 @@ describe('FilterBar', () => {
     fireEvent.change(screen.getByDisplayValue('Movies & TV'), { target: { value: 'movie' } })
     expect(onMediaTypeChange).toHaveBeenCalledWith('movie')
 
-    fireEvent.change(screen.getByDisplayValue('All Genres'), { target: { value: 'Action' } })
-    expect(onGenreChange).toHaveBeenCalledWith('Action')
+    fireEvent.click(screen.getByLabelText('Filter by genres'))
+    fireEvent.click(screen.getByLabelText('Action'))
+    expect(onGenresChange).toHaveBeenCalledWith(['Action'])
 
     fireEvent.change(screen.getByDisplayValue('Any Status'), { target: { value: 'watchlist' } })
     expect(onStatusChange).toHaveBeenCalledWith('watchlist')
@@ -143,8 +144,8 @@ describe('FilterBar', () => {
         onMediaTypeChange={vi.fn()}
         releaseKind="all"
         onReleaseKindChange={vi.fn()}
-        genre="all"
-        onGenreChange={vi.fn()}
+        genres={[]}
+        onGenresChange={vi.fn()}
         availableGenres={[]}
         status="all"
         onStatusChange={vi.fn()}
