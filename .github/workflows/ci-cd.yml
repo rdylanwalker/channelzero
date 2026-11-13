@@ -60,12 +60,8 @@ jobs:
     name: Playwright E2E (Chromium)
     needs: [rust, frontend]
     runs-on: ubuntu-24.04
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.head_ref || github.ref }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v6
@@ -82,20 +78,6 @@ jobs:
       - name: Run Playwright E2E tests
         working-directory: playwright
         run: npm run test:e2e
-      - name: Update README dashboard screenshot on PRs
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        working-directory: playwright
-        run: npm run screenshot
-      - name: Commit updated screenshot if changed
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        run: |
-          if ! git diff --quiet docs/dashboard.png; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add docs/dashboard.png
-            git commit -m "docs(readme): update dashboard screenshot [skip ci]"
-            git push
-          fi
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v4
