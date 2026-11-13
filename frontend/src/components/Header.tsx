@@ -61,12 +61,12 @@ export function Header({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/80 pl-2.5 pr-1 text-foreground">
-            <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <div className="relative flex items-center">
+            <User className="pointer-events-none absolute left-2.5 z-10 h-3.5 w-3.5 text-muted-foreground" />
             <Select
               value={activeProfileId}
               onChange={(e) => onSelectProfile(e.target.value)}
-              className="h-8 border-0 bg-transparent pl-1 pr-6 text-xs font-medium focus-visible:ring-0"
+              className="h-8 pl-7 pr-7 text-xs font-medium"
               aria-label="Active profile"
             >
               {profiles.map((p) => (
