@@ -1,0 +1,11 @@
+node_modules
+dist
+target
+coverage
+playwright-report
+test-results
+playwright/results
+*.lock
+package-lock.json
+Cargo.lock
+*.rs

@@ -1,0 +1,25 @@
+# Rust
+/target
+*.profraw
+*.profdata
+lcov.info
+
+# Frontend
+/frontend/node_modules
+/frontend/dist
+/frontend/coverage
+*.tsbuildinfo
+
+# Playwright
+/playwright/node_modules
+/playwright/playwright-report
+/playwright/results
+/playwright/test-results
+
+# Local data & secrets
+/data
+*.db
+*.db-shm
+*.db-wal
+.env
+config.json

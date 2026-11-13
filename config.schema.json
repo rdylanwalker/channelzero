@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/channelzero/channelzero/config.schema.json",
+  "title": "ChannelZero Configuration",
+  "description": "Configuration schema for the ChannelZero streaming dashboard.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "default": 8080,
+      "description": "HTTP port the server listens on."
+    },
+    "region": {
+      "type": "string",
+      "pattern": "^[A-Z]{2}$",
+      "default": "US",
+      "description": "ISO 3166-1 alpha-2 country code for regional streaming availability (e.g. US, CA, GB, AU)."
+    },
+    "timezone": {
+      "type": "string",
+      "minLength": 1,
+      "default": "UTC",
+      "description": "IANA timezone name for local release date calculations (e.g. America/New_York)."
+    },
+    "new_release_days": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 365,
+      "default": 30,
+      "description": "Lookback window in days for highlighting new releases."
+    },
+    "refresh_interval_hours": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 168,
+      "default": 6,
+      "description": "Background metadata refresh cadence in hours."
+    },
+    "providers": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "default": [
+        "netflix",
+        "max",
+        "disney_plus",
+        "prime_video",
+        "hulu",
+        "apple_tv_plus",
+        "peacock",
+        "paramount_plus"
+      ],
+      "items": {
+        "type": "string",
+        "enum": [
+          "netflix",
+          "max",
+          "disney_plus",
+          "prime_video",
+          "hulu",
+          "apple_tv_plus",
+          "peacock",
+          "paramount_plus"
+        ]
+      },
+      "description": "Ordered list of enabled streaming providers (first = highest priority for main play action)."
+    },
+    "sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tvmaze": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable TVmaze (anonymous, free, no API key required)."
+            }
+          }
+        },
+        "tmdb": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable TMDB (free API key required)."
+            },
+            "api_key": {
+              "type": "string",
+              "description": "TMDB API key or v4 read access token (prefer TMDB_API_KEY env var)."
+            }
+          }
+        },
+        "omdb": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable OMDb rating enrichment (free-tier API key required)."
+            },
+            "api_key": {
+              "type": "string",
+              "description": "OMDb API key (prefer OMDB_API_KEY env var)."
+            }
+          }
+        },
+        "watchmode": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable Watchmode deep-link enrichment (API key required)."
+            },
+            "api_key": {
+              "type": "string",
+              "description": "Watchmode API key (prefer WATCHMODE_API_KEY env var)."
+            }
+          }
+        }
+      }
+    }
+  }
+}

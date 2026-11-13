@@ -1,0 +1,32 @@
+{
+  "$schema": "./config.schema.json",
+  "port": 8080,
+  "region": "US",
+  "timezone": "America/New_York",
+  "new_release_days": 30,
+  "refresh_interval_hours": 6,
+  "providers": [
+    "netflix",
+    "max",
+    "disney_plus",
+    "prime_video",
+    "hulu",
+    "apple_tv_plus",
+    "peacock",
+    "paramount_plus"
+  ],
+  "sources": {
+    "tvmaze": {
+      "enabled": true
+    },
+    "tmdb": {
+      "enabled": false
+    },
+    "omdb": {
+      "enabled": false
+    },
+    "watchmode": {
+      "enabled": false
+    }
+  }
+}

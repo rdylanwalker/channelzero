@@ -1,0 +1,17 @@
+repos:
+  - repo: https://github.com/pre-commit/mirrors-rust
+    rev: v1.0.0
+    hooks:
+      - id: cargo-fmt
+      - id: cargo-clippy
+
+  - repo: https://github.com/pre-commit/mirrors-pre-commit
+    rev: v3.2.2
+    hooks:
+      - id: pre-commit-install
+        name: Install pre-commit
+        language: python
+        entry: pip install pre-commit
+        pass_env: true
+        args:
+          - --user
