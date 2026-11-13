@@ -105,11 +105,13 @@ async fn run_sync_inner(db: &Database, config: &AppConfig) -> anyhow::Result<()>
 
     let today = today_in_tz(&config.timezone);
     let now_str = Utc::now().to_rfc3339();
+    let max_profile_days = db.max_profile_new_release_days().await?.unwrap_or(0);
+    let effective_days = config.new_release_days.max(max_profile_days).clamp(1, 365);
     let mut all_raw: Vec<RawProgram> = Vec::new();
 
     // 1. Anonymous Free: TVmaze
     if config.sources.tvmaze.enabled {
-        match tvmaze::fetch_tvmaze_releases(&client, config, today).await {
+        match tvmaze::fetch_tvmaze_releases(&client, config, today, effective_days).await {
             Ok(items) => {
                 let count = items.len() as i64;
                 info!("TVmaze fetched {count} items");
@@ -158,7 +160,7 @@ async fn run_sync_inner(db: &Database, config: &AppConfig) -> anyhow::Result<()>
     // 2. Free Key: TMDB
     let tmdb_key = config.sources.tmdb.api_key.as_deref().unwrap_or("");
     if config.sources.tmdb.enabled && !tmdb_key.is_empty() {
-        match tmdb::fetch_tmdb_releases(&client, config, tmdb_key, today).await {
+        match tmdb::fetch_tmdb_releases(&client, config, tmdb_key, today, effective_days).await {
             Ok(items) => {
                 let count = items.len() as i64;
                 info!("TMDB fetched {count} items");

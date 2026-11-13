@@ -91,8 +91,9 @@ pub async fn fetch_tmdb_releases(
     config: &AppConfig,
     api_key: &str,
     today: NaiveDate,
+    lookback_days: u32,
 ) -> Result<Vec<RawProgram>> {
-    let min_date = (today - Duration::days(config.new_release_days as i64))
+    let min_date = (today - Duration::days(lookback_days as i64))
         .format("%Y-%m-%d")
         .to_string();
     let max_date = today.format("%Y-%m-%d").to_string();
@@ -110,7 +111,7 @@ pub async fn fetch_tmdb_releases(
     let watch_providers_param = tmdb_provider_ids.join("|");
 
     let mut out = Vec::new();
-    let max_pages = discover_page_limit(config.new_release_days);
+    let max_pages = discover_page_limit(lookback_days);
 
     // 1. Discover Movies (paginated)
     for page in 1..=max_pages {
