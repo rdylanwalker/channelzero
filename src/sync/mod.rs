@@ -111,109 +111,122 @@ async fn run_sync_inner(db: &Database, config: &AppConfig) -> anyhow::Result<()>
     let effective_days = config.new_release_days.max(max_profile_days).clamp(1, 365);
     let mut all_raw: Vec<RawProgram> = Vec::new();
 
-    // 1. Anonymous Free: TVmaze
-    if config.sources.tvmaze.enabled {
-        match tvmaze::fetch_tvmaze_releases(&client, config, today, effective_days).await {
-            Ok(items) => {
-                let count = items.len() as i64;
-                info!("TVmaze fetched {count} items");
-                all_raw.extend(items);
-                db.upsert_source_status(&SourceStatus {
-                    name: "TVmaze".into(),
-                    tier: "Anonymous / Free".into(),
-                    enabled: true,
-                    configured: true,
-                    last_sync_at: Some(now_str.clone()),
-                    last_status: "ok".into(),
-                    last_error: None,
-                    items_fetched: count,
-                })
-                .await?;
-            }
-            Err(e) => {
-                error!("TVmaze sync error: {e}");
-                db.upsert_source_status(&SourceStatus {
-                    name: "TVmaze".into(),
-                    tier: "Anonymous / Free".into(),
-                    enabled: true,
-                    configured: true,
-                    last_sync_at: Some(now_str.clone()),
-                    last_status: "error".into(),
-                    last_error: Some(e.to_string()),
-                    items_fetched: 0,
-                })
-                .await?;
-            }
+    // 1 & 2. Fetch TVmaze and TMDB concurrently
+    let tmdb_key = config.sources.tmdb.api_key.as_deref().unwrap_or("");
+    let tvmaze_fut = async {
+        if config.sources.tvmaze.enabled {
+            Some(tvmaze::fetch_tvmaze_releases(&client, config, today, effective_days).await)
+        } else {
+            None
         }
-    } else {
-        db.upsert_source_status(&SourceStatus {
-            name: "TVmaze".into(),
-            tier: "Anonymous / Free".into(),
-            enabled: false,
-            configured: true,
-            last_sync_at: None,
-            last_status: "disabled".into(),
-            last_error: None,
-            items_fetched: 0,
-        })
-        .await?;
+    };
+    let tmdb_fut = async {
+        if config.sources.tmdb.enabled && !tmdb_key.is_empty() {
+            Some(tmdb::fetch_tmdb_releases(&client, config, tmdb_key, today, effective_days).await)
+        } else {
+            None
+        }
+    };
+    let (tvmaze_res, tmdb_res) = tokio::join!(tvmaze_fut, tmdb_fut);
+
+    match tvmaze_res {
+        Some(Ok(items)) => {
+            let count = items.len() as i64;
+            info!("TVmaze fetched {count} items");
+            all_raw.extend(items);
+            db.upsert_source_status(&SourceStatus {
+                name: "TVmaze".into(),
+                tier: "Anonymous / Free".into(),
+                enabled: true,
+                configured: true,
+                last_sync_at: Some(now_str.clone()),
+                last_status: "ok".into(),
+                last_error: None,
+                items_fetched: count,
+            })
+            .await?;
+        }
+        Some(Err(e)) => {
+            error!("TVmaze sync error: {e}");
+            db.upsert_source_status(&SourceStatus {
+                name: "TVmaze".into(),
+                tier: "Anonymous / Free".into(),
+                enabled: true,
+                configured: true,
+                last_sync_at: Some(now_str.clone()),
+                last_status: "error".into(),
+                last_error: Some(e.to_string()),
+                items_fetched: 0,
+            })
+            .await?;
+        }
+        None => {
+            db.upsert_source_status(&SourceStatus {
+                name: "TVmaze".into(),
+                tier: "Anonymous / Free".into(),
+                enabled: false,
+                configured: true,
+                last_sync_at: None,
+                last_status: "disabled".into(),
+                last_error: None,
+                items_fetched: 0,
+            })
+            .await?;
+        }
     }
 
-    // 2. Free Key: TMDB
-    let tmdb_key = config.sources.tmdb.api_key.as_deref().unwrap_or("");
-    if config.sources.tmdb.enabled && !tmdb_key.is_empty() {
-        match tmdb::fetch_tmdb_releases(&client, config, tmdb_key, today, effective_days).await {
-            Ok(items) => {
-                let count = items.len() as i64;
-                info!("TMDB fetched {count} items");
-                all_raw.extend(items);
-                db.upsert_source_status(&SourceStatus {
-                    name: "TMDB".into(),
-                    tier: "Free API Key".into(),
-                    enabled: true,
-                    configured: true,
-                    last_sync_at: Some(now_str.clone()),
-                    last_status: "ok".into(),
-                    last_error: None,
-                    items_fetched: count,
-                })
-                .await?;
-            }
-            Err(e) => {
-                error!("TMDB sync error: {e}");
-                db.upsert_source_status(&SourceStatus {
-                    name: "TMDB".into(),
-                    tier: "Free API Key".into(),
-                    enabled: true,
-                    configured: true,
-                    last_sync_at: Some(now_str.clone()),
-                    last_status: "error".into(),
-                    last_error: Some(e.to_string()),
-                    items_fetched: 0,
-                })
-                .await?;
-            }
+    match tmdb_res {
+        Some(Ok(items)) => {
+            let count = items.len() as i64;
+            info!("TMDB fetched {count} items");
+            all_raw.extend(items);
+            db.upsert_source_status(&SourceStatus {
+                name: "TMDB".into(),
+                tier: "Free API Key".into(),
+                enabled: true,
+                configured: true,
+                last_sync_at: Some(now_str.clone()),
+                last_status: "ok".into(),
+                last_error: None,
+                items_fetched: count,
+            })
+            .await?;
         }
-    } else {
-        db.upsert_source_status(&SourceStatus {
-            name: "TMDB".into(),
-            tier: "Free API Key".into(),
-            enabled: config.sources.tmdb.enabled,
-            configured: !tmdb_key.is_empty(),
-            last_sync_at: None,
-            last_status: if config.sources.tmdb.enabled {
-                "missing_key".into()
-            } else {
-                "disabled".into()
-            },
-            last_error: if config.sources.tmdb.enabled && tmdb_key.is_empty() {
-                Some("TMDB_API_KEY not configured".into())
-            } else {
-                None
-            },
-            items_fetched: 0,
-        })
-        .await?;
+        Some(Err(e)) => {
+            error!("TMDB sync error: {e}");
+            db.upsert_source_status(&SourceStatus {
+                name: "TMDB".into(),
+                tier: "Free API Key".into(),
+                enabled: true,
+                configured: true,
+                last_sync_at: Some(now_str.clone()),
+                last_status: "error".into(),
+                last_error: Some(e.to_string()),
+                items_fetched: 0,
+            })
+            .await?;
+        }
+        None => {
+            db.upsert_source_status(&SourceStatus {
+                name: "TMDB".into(),
+                tier: "Free API Key".into(),
+                enabled: config.sources.tmdb.enabled,
+                configured: !tmdb_key.is_empty(),
+                last_sync_at: None,
+                last_status: if config.sources.tmdb.enabled {
+                    "missing_key".into()
+                } else {
+                    "disabled".into()
+                },
+                last_error: if config.sources.tmdb.enabled && tmdb_key.is_empty() {
+                    Some("TMDB_API_KEY not configured".into())
+                } else {
+                    None
+                },
+                items_fetched: 0,
+            })
+            .await?;
+        }
     }
 
     // Merge & deduplicate raw items
