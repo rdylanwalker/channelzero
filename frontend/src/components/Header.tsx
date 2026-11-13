@@ -59,7 +59,7 @@ export function Header({
     : null
 
   return (
-    <header className="border-b border-border bg-background/90 backdrop-blur-md">
+    <header className="relative z-40 border-b border-border bg-background/90 backdrop-blur-md">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3">
         <div className="flex items-center gap-3">
           <img src="/favicon.svg" alt="ChannelZero" className="h-9 w-9 rounded-lg shadow" />
