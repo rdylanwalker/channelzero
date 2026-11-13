@@ -3,6 +3,9 @@ use chrono::{Duration, NaiveDate};
 use reqwest::Client;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
 use tracing::debug;
 
 use crate::config::{
@@ -54,7 +57,10 @@ struct TmdbExternalIds {
 }
 
 #[derive(Debug, Deserialize)]
-struct TmdbTvDetails {
+struct TmdbEnrichResponse {
+    #[serde(rename = "watch/providers")]
+    watch_providers: Option<TmdbWatchProvidersResponse>,
+    external_ids: Option<TmdbExternalIds>,
     last_air_date: Option<String>,
     last_episode_to_air: Option<TmdbEpisodeSummary>,
 }
@@ -124,8 +130,12 @@ pub async fn fetch_tmdb_releases(
     }
     let watch_providers_param = tmdb_provider_ids.join("|");
 
-    let mut out = Vec::new();
     let max_pages = discover_page_limit(lookback_days);
+    let mut seen_movie_ids: HashSet<i64> = HashSet::new();
+    let mut seen_tv_ids: HashSet<i64> = HashSet::new();
+    let mut movie_candidates: Vec<TmdbDiscoverItem> = Vec::new();
+    let mut new_tv_candidates: Vec<TmdbDiscoverItem> = Vec::new();
+    let mut returning_tv_candidates: Vec<TmdbDiscoverItem> = Vec::new();
 
     // 1. Discover Movies (paginated)
     for page in 1..=max_pages {
@@ -141,10 +151,8 @@ pub async fn fetch_tmdb_releases(
                         break;
                     }
                     for item in data.results {
-                        if let Some(prog) =
-                            enrich_tmdb_item(client, config, api_key, item, MediaType::Movie).await
-                        {
-                            out.push(prog);
+                        if seen_movie_ids.insert(item.id) {
+                            movie_candidates.push(item);
                         }
                     }
                     if page >= total_pages {
@@ -163,7 +171,6 @@ pub async fn fetch_tmdb_releases(
     }
 
     // 2a. Discover New TV Series (paginated, filtered by first_air_date)
-    let mut seen_tv_ids: HashSet<i64> = HashSet::new();
     for page in 1..=max_pages {
         let tv_url = format!(
             "https://api.themoviedb.org/3/discover/tv?api_key={api_key}&watch_region={}&with_watch_providers={watch_providers_param}&first_air_date.gte={min_date}&first_air_date.lte={max_date}&sort_by=popularity.desc&page={page}",
@@ -177,11 +184,8 @@ pub async fn fetch_tmdb_releases(
                         break;
                     }
                     for item in data.results {
-                        seen_tv_ids.insert(item.id);
-                        if let Some(prog) =
-                            enrich_tmdb_item(client, config, api_key, item, MediaType::Series).await
-                        {
-                            out.push(prog);
+                        if seen_tv_ids.insert(item.id) {
+                            new_tv_candidates.push(item);
                         }
                     }
                     if page >= total_pages {
@@ -213,15 +217,8 @@ pub async fn fetch_tmdb_releases(
                         break;
                     }
                     for item in data.results {
-                        if !seen_tv_ids.insert(item.id) {
-                            continue;
-                        }
-                        if let Some(prog) = enrich_tmdb_returning_tv(
-                            client, config, api_key, item, &min_date, &max_date,
-                        )
-                        .await
-                        {
-                            out.push(prog);
+                        if seen_tv_ids.insert(item.id) {
+                            returning_tv_candidates.push(item);
                         }
                     }
                     if page >= total_pages {
@@ -236,6 +233,60 @@ pub async fn fetch_tmdb_releases(
                 break;
             }
             Err(_) => break,
+        }
+    }
+
+    // 3. Enrich all candidates concurrently using a single append_to_response call per item.
+    let sem = Arc::new(Semaphore::new(12));
+    let mut set = JoinSet::new();
+
+    for item in movie_candidates {
+        let permit = sem.clone();
+        let client = client.clone();
+        let config = config.clone();
+        let api_key = api_key.to_string();
+        set.spawn(async move {
+            let _guard = permit.acquire().await.ok()?;
+            enrich_tmdb_item(&client, &config, &api_key, item, MediaType::Movie, None).await
+        });
+    }
+
+    for item in new_tv_candidates {
+        let permit = sem.clone();
+        let client = client.clone();
+        let config = config.clone();
+        let api_key = api_key.to_string();
+        set.spawn(async move {
+            let _guard = permit.acquire().await.ok()?;
+            enrich_tmdb_item(&client, &config, &api_key, item, MediaType::Series, None).await
+        });
+    }
+
+    for item in returning_tv_candidates {
+        let permit = sem.clone();
+        let client = client.clone();
+        let config = config.clone();
+        let api_key = api_key.to_string();
+        let min_d = min_date.clone();
+        let max_d = max_date.clone();
+        set.spawn(async move {
+            let _guard = permit.acquire().await.ok()?;
+            enrich_tmdb_item(
+                &client,
+                &config,
+                &api_key,
+                item,
+                MediaType::Series,
+                Some((&min_d, &max_d)),
+            )
+            .await
+        });
+    }
+
+    let mut out = Vec::new();
+    while let Some(res) = set.join_next().await {
+        if let Ok(Some(prog)) = res {
+            out.push(prog);
         }
     }
 
@@ -259,104 +310,86 @@ fn format_tmdb_episode_info(ep: &TmdbEpisodeSummary) -> Option<String> {
     }
 }
 
-async fn enrich_tmdb_returning_tv(
-    client: &Client,
-    config: &AppConfig,
-    api_key: &str,
-    item: TmdbDiscoverItem,
-    min_date: &str,
-    max_date: &str,
-) -> Option<RawProgram> {
-    let details_url = format!(
-        "https://api.themoviedb.org/3/tv/{}?api_key={api_key}",
-        item.id
-    );
-    let details: TmdbTvDetails = match client.get(&details_url).send().await {
-        Ok(resp) if resp.status().is_success() => resp.json().await.ok()?,
-        _ => return None,
-    };
-
-    let ep_air_date = details
-        .last_episode_to_air
-        .as_ref()
-        .and_then(|e| e.air_date.as_deref())
-        .filter(|d| !d.is_empty())
-        .or(details.last_air_date.as_deref())?;
-
-    if !is_date_in_window(ep_air_date, min_date, max_date) {
-        return None;
-    }
-
-    let episode_info = details
-        .last_episode_to_air
-        .as_ref()
-        .and_then(format_tmdb_episode_info);
-    let ep_air_date = ep_air_date.to_string();
-
-    let mut prog = enrich_tmdb_item(client, config, api_key, item, MediaType::Series).await?;
-    prog.release_kind = ReleaseKind::NewEpisode;
-    prog.release_date = ep_air_date;
-    prog.episode_info = episode_info;
-    Some(prog)
-}
-
 async fn enrich_tmdb_item(
     client: &Client,
     config: &AppConfig,
     api_key: &str,
     item: TmdbDiscoverItem,
     media_type: MediaType,
+    returning_window: Option<(&str, &str)>,
 ) -> Option<RawProgram> {
     let title = match media_type {
         MediaType::Movie => item.title.clone()?,
         MediaType::Series => item.name.clone()?,
     };
-    let release_date = match media_type {
+    let base_release_date = match media_type {
         MediaType::Movie => item.release_date.clone().unwrap_or_default(),
         MediaType::Series => item.first_air_date.clone().unwrap_or_default(),
     };
-    if release_date.is_empty() {
+    if base_release_date.is_empty() {
         return None;
     }
-    let release_year = release_date.get(0..4).and_then(|y| y.parse::<i32>().ok());
+    let release_year = base_release_date
+        .get(0..4)
+        .and_then(|y| y.parse::<i32>().ok());
 
     let kind_path = match media_type {
         MediaType::Movie => "movie",
         MediaType::Series => "tv",
     };
 
-    // Fetch regional watch providers
-    let wp_url = format!(
-        "https://api.themoviedb.org/3/{kind_path}/{}/watch/providers?api_key={api_key}",
+    let enrich_url = format!(
+        "https://api.themoviedb.org/3/{kind_path}/{}?api_key={api_key}&append_to_response=watch/providers,external_ids",
         item.id
     );
+    let details: TmdbEnrichResponse = match client.get(&enrich_url).send().await {
+        Ok(resp) if resp.status().is_success() => resp.json().await.ok()?,
+        _ => return None,
+    };
+
+    let (release_kind, release_date, episode_info) =
+        if let Some((min_date, max_date)) = returning_window {
+            let ep_air_date = details
+                .last_episode_to_air
+                .as_ref()
+                .and_then(|e| e.air_date.as_deref())
+                .filter(|d| !d.is_empty())
+                .or(details.last_air_date.as_deref())?;
+            if !is_date_in_window(ep_air_date, min_date, max_date) {
+                return None;
+            }
+            let ep_info = details
+                .last_episode_to_air
+                .as_ref()
+                .and_then(format_tmdb_episode_info);
+            (ReleaseKind::NewEpisode, ep_air_date.to_string(), ep_info)
+        } else {
+            (ReleaseKind::NewTitle, base_release_date, None)
+        };
+
     let mut providers = Vec::new();
     let mut tmdb_watch_link = format!("https://www.themoviedb.org/{kind_path}/{}", item.id);
 
-    if let Ok(resp) = client.get(&wp_url).send().await {
-        if resp.status().is_success() {
-            if let Ok(wp) = resp.json::<TmdbWatchProvidersResponse>().await {
-                if let Some(region_data) = wp.results.get(&config.region) {
-                    if let Some(link) = &region_data.link {
-                        tmdb_watch_link = link.clone();
-                    }
-                    if let Some(flatrate) = &region_data.flatrate {
-                        for entry in flatrate {
-                            if let Some(slug) = tmdb_provider_id_to_slug(entry.provider_id) {
-                                if config.providers.iter().any(|p| p == slug)
-                                    && !providers.iter().any(|p: &ProviderLink| p.id == slug)
-                                {
-                                    let name = provider_meta_by_id(slug)
-                                        .map(|m| m.name)
-                                        .unwrap_or_else(|| slug.to_string());
-                                    providers.push(ProviderLink {
-                                        id: slug.to_string(),
-                                        name,
-                                        url: provider_search_url(slug, &title),
-                                        is_direct: false,
-                                    });
-                                }
-                            }
+    if let Some(wp) = details.watch_providers {
+        if let Some(region_data) = wp.results.get(&config.region) {
+            if let Some(link) = &region_data.link {
+                tmdb_watch_link = link.clone();
+            }
+            if let Some(flatrate) = &region_data.flatrate {
+                for entry in flatrate {
+                    if let Some(slug) = tmdb_provider_id_to_slug(entry.provider_id) {
+                        if config.providers.iter().any(|p| p == slug)
+                            && !providers.iter().any(|p: &ProviderLink| p.id == slug)
+                        {
+                            let name = provider_meta_by_id(slug)
+                                .map(|m| m.name)
+                                .unwrap_or_else(|| slug.to_string());
+                            providers.push(ProviderLink {
+                                id: slug.to_string(),
+                                name,
+                                url: provider_search_url(slug, &title),
+                                is_direct: false,
+                            });
                         }
                     }
                 }
@@ -368,19 +401,7 @@ async fn enrich_tmdb_item(
         return None;
     }
 
-    // Fetch external IDs (IMDb)
-    let ext_url = format!(
-        "https://api.themoviedb.org/3/{kind_path}/{}/external_ids?api_key={api_key}",
-        item.id
-    );
-    let imdb_id = match client.get(&ext_url).send().await {
-        Ok(resp) if resp.status().is_success() => resp
-            .json::<TmdbExternalIds>()
-            .await
-            .ok()
-            .and_then(|e| e.imdb_id),
-        _ => None,
-    };
+    let imdb_id = details.external_ids.and_then(|e| e.imdb_id);
 
     let genres = item
         .genre_ids
@@ -402,10 +423,10 @@ async fn enrich_tmdb_item(
     Some(RawProgram {
         title,
         media_type,
-        release_kind: ReleaseKind::NewTitle,
+        release_kind,
         release_date,
         release_year,
-        episode_info: None,
+        episode_info,
         synopsis: item.overview.filter(|s| !s.trim().is_empty()),
         poster_url: item
             .poster_path
