@@ -53,7 +53,8 @@ export function ProfileSettingsModal({
   )
   const [savingSettings, setSavingSettings] = useState(false)
   const [settingsError, setSettingsError] = useState<string | null>(null)
-  const [syncPromptRegion, setSyncPromptRegion] = useState<string | null>(null)
+  const [settingsSaved, setSettingsSaved] = useState(false)
+  const [syncPromptMessage, setSyncPromptMessage] = useState<string | null>(null)
 
   const currentSyncKey = `${activeProfileId}:${open}:${activeProfile?.region ?? ''}:${activeProfile?.new_release_days ?? ''}`
   if (currentSyncKey !== prevSyncKey) {
@@ -65,6 +66,7 @@ export function ProfileSettingsModal({
         : '',
     )
     setSettingsError(null)
+    setSettingsSaved(false)
   }
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -82,6 +84,7 @@ export function ProfileSettingsModal({
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault()
     setSettingsError(null)
+    setSettingsSaved(false)
 
     const trimmedRegion = regionInput.trim().toUpperCase()
     if (trimmedRegion !== '' && !/^[A-Z]{2}$/.test(trimmedRegion)) {
@@ -102,6 +105,8 @@ export function ProfileSettingsModal({
     const nextRegion = trimmedRegion === '' ? null : trimmedRegion
     const prevEffectiveRegion = activeProfile?.region ?? config?.region ?? 'US'
     const nextEffectiveRegion = nextRegion ?? config?.region ?? 'US'
+    const prevEffectiveDays = activeProfile?.new_release_days ?? config?.new_release_days ?? 30
+    const nextEffectiveDays = parsedDays ?? config?.new_release_days ?? 30
 
     setSavingSettings(true)
     try {
@@ -109,8 +114,15 @@ export function ProfileSettingsModal({
         region: nextRegion,
         new_release_days: parsedDays,
       })
+      setSettingsSaved(true)
       if (nextEffectiveRegion !== prevEffectiveRegion) {
-        setSyncPromptRegion(nextEffectiveRegion)
+        setSyncPromptMessage(
+          `Region updated to ${nextEffectiveRegion}. Sync now to update streaming provider availability.`,
+        )
+      } else if (nextEffectiveDays > prevEffectiveDays) {
+        setSyncPromptMessage(
+          `Release window increased to ${nextEffectiveDays} days. Sync now to fetch older releases.`,
+        )
       }
     } catch (err) {
       setSettingsError(err instanceof Error ? err.message : 'Failed to save settings')
@@ -207,7 +219,10 @@ export function ProfileSettingsModal({
               <Input
                 id="profile-region-input"
                 value={regionInput}
-                onChange={(e) => setRegionInput(e.target.value)}
+                onChange={(e) => {
+                  setRegionInput(e.target.value)
+                  setSettingsSaved(false)
+                }}
                 placeholder={config?.region ?? 'US'}
                 maxLength={2}
               />
@@ -226,7 +241,10 @@ export function ProfileSettingsModal({
                 min={1}
                 max={365}
                 value={daysInput}
-                onChange={(e) => setDaysInput(e.target.value)}
+                onChange={(e) => {
+                  setDaysInput(e.target.value)
+                  setSettingsSaved(false)
+                }}
                 placeholder={String(config?.new_release_days ?? 30)}
               />
             </div>
@@ -239,20 +257,18 @@ export function ProfileSettingsModal({
           </form>
 
           {settingsError && <p className="text-xs text-red-400">{settingsError}</p>}
+          {settingsSaved && <p className="text-xs text-emerald-400">Settings saved.</p>}
 
-          {syncPromptRegion && (
+          {syncPromptMessage && (
             <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-              <span>
-                Region updated to <strong>{syncPromptRegion}</strong>. Sync now to update streaming
-                provider availability.
-              </span>
+              <span>{syncPromptMessage}</span>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={async () => {
                   await onTriggerSync()
-                  setSyncPromptRegion(null)
+                  setSyncPromptMessage(null)
                 }}
               >
                 <RefreshCw className="h-3 w-3" />

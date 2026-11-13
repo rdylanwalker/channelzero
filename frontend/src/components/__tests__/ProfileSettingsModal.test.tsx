@@ -59,6 +59,7 @@ describe('ProfileSettingsModal', () => {
       })
     })
 
+    expect(await screen.findByText('Settings saved.')).toBeInTheDocument()
     expect(await screen.findByText(/Region updated to/i)).toBeInTheDocument()
 
     const syncNowButton = screen.getByRole('button', { name: /Sync Now/i })
@@ -182,5 +183,32 @@ describe('ProfileSettingsModal', () => {
     fireEvent.change(daysInput, { target: { value: '' } })
     fireEvent.click(saveButton)
     expect(await screen.findByText('Server rejected')).toBeInTheDocument()
+  })
+
+  it('prompts to sync when new_release_days is increased', async () => {
+    const onUpdateProfileSettings = vi.fn().mockResolvedValue(undefined)
+
+    render(
+      <ProfileSettingsModal
+        open={true}
+        onClose={vi.fn()}
+        profiles={profiles}
+        activeProfileId="default"
+        config={config}
+        onSelectProfile={vi.fn()}
+        onCreateProfile={vi.fn()}
+        onDeleteProfile={vi.fn()}
+        onUpdateProfileSettings={onUpdateProfileSettings}
+        onTriggerSync={vi.fn()}
+        hiddenState={null}
+        onUnhideTitle={vi.fn()}
+        onUnhideGenre={vi.fn()}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('New Release Days'), { target: { value: '60' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByText(/Release window increased to 60 days/i)).toBeInTheDocument()
   })
 })
