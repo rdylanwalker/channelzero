@@ -13,6 +13,10 @@
   --color-accent: hsl(217 91% 60%);
 }
 
+:root {
+  color-scheme: dark;
+}
+
 body {
   background-color: hsl(224 71% 4%);
   color: hsl(213 31% 91%);
