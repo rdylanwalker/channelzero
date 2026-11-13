@@ -101,10 +101,13 @@ pub async fn fetch_tvmaze_releases(
 ) -> Result<Vec<RawProgram>> {
     let mut dedup: HashMap<i64, RawProgram> = HashMap::new();
 
-    // Fetch web/streaming schedule for the past min(new_release_days, 14) days + today
-    // plus national schedule for today/recent days to catch major streaming web channels.
-    let lookback = config.new_release_days.min(14) as i64;
+    // Fetch web/streaming schedule for the past new_release_days + today,
+    // pacing requests gently when fetching more than 14 days to respect TVmaze rate limits.
+    let lookback = config.new_release_days as i64;
     for offset in 0..=lookback {
+        if offset > 0 && lookback > 14 {
+            tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+        }
         let date = today - Duration::days(offset);
         let date_str = date.format("%Y-%m-%d").to_string();
         let url = format!("https://api.tvmaze.com/schedule/web?date={date_str}");
