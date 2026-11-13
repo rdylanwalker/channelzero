@@ -133,4 +133,61 @@ describe('Header', () => {
     fireEvent.click(screen.getByTitle('Refresh metadata now'))
     expect(onRefresh).toHaveBeenCalledTimes(1)
   })
+
+  it('displays the last refresh date/time when syncStatus is provided', () => {
+    const iso = '2026-02-10T12:00:00Z'
+    const expected = new Date(iso).toLocaleString()
+    const statusWithSync: SyncStatusResponse = {
+      last_sync_at: iso,
+      is_syncing: false,
+      total_programs: 42,
+      refresh_interval_hours: 6,
+      new_release_days: 30,
+      region: 'US',
+      sources: [],
+    }
+
+    render(
+      <Header
+        profiles={baseProfiles}
+        activeProfileId="default"
+        onSelectProfile={vi.fn()}
+        config={baseConfig}
+        syncStatus={statusWithSync}
+        onRefresh={vi.fn()}
+        onOpenSyncStatus={vi.fn()}
+        onOpenProfileSettings={vi.fn()}
+      />,
+    )
+
+    const el = screen.getByTestId('last-refreshed')
+    expect(el).toHaveTextContent(`Last refreshed: ${expected}`)
+  })
+
+  it('displays Never when syncStatus.last_sync_at is null', () => {
+    const statusNeverSynced: SyncStatusResponse = {
+      last_sync_at: null,
+      is_syncing: false,
+      total_programs: 0,
+      refresh_interval_hours: 6,
+      new_release_days: 30,
+      region: 'US',
+      sources: [],
+    }
+
+    render(
+      <Header
+        profiles={baseProfiles}
+        activeProfileId="default"
+        onSelectProfile={vi.fn()}
+        config={baseConfig}
+        syncStatus={statusNeverSynced}
+        onRefresh={vi.fn()}
+        onOpenSyncStatus={vi.fn()}
+        onOpenProfileSettings={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByTestId('last-refreshed')).toHaveTextContent('Last refreshed: Never')
+  })
 })
