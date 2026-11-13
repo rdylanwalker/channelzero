@@ -165,6 +165,36 @@ async function seedDatabaseWhenReady() {
             null,
             now,
           ],
+          [
+            'prog-vintage',
+            'vintage quest|2022|series',
+            'Vintage Quest',
+            'series',
+            'new_title',
+            daysAgoIso(120),
+            2022,
+            null,
+            'An older fantasy adventure outside the 30-day window.',
+            null,
+            null,
+            JSON.stringify(['Adventure']),
+            JSON.stringify([
+              {
+                id: 'prime_video',
+                name: 'Prime Video',
+                url: 'https://amazon.com/dp/5',
+                is_direct: false,
+              },
+            ]),
+            'https://amazon.com/dp/5',
+            8.1,
+            JSON.stringify([{ source: 'TVmaze', score: '8.1/10', normalized_10: 8.1 }]),
+            JSON.stringify(['TVmaze']),
+            'tt1000005',
+            null,
+            1005,
+            now,
+          ],
         ]
 
         for (const row of items) {
