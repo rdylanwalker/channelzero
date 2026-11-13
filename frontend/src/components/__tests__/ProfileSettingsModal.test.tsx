@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { Profile, PublicConfig } from '../../types'
@@ -210,5 +211,43 @@ describe('ProfileSettingsModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     expect(await screen.findByText(/Release window increased to 60 days/i)).toBeInTheDocument()
+  })
+
+  it('keeps Settings saved helper text visible when parent profiles state updates on first save', async () => {
+    function Harness() {
+      const [stateProfiles, setStateProfiles] = useState<Profile[]>(profiles)
+      return (
+        <ProfileSettingsModal
+          open={true}
+          onClose={vi.fn()}
+          profiles={stateProfiles}
+          activeProfileId="default"
+          config={config}
+          onSelectProfile={vi.fn()}
+          onCreateProfile={vi.fn()}
+          onDeleteProfile={vi.fn()}
+          onUpdateProfileSettings={async (id, patch) => {
+            setStateProfiles((prev) =>
+              prev.map((p) =>
+                p.id === id
+                  ? { ...p, region: patch.region, new_release_days: patch.new_release_days }
+                  : p,
+              ),
+            )
+          }}
+          onTriggerSync={vi.fn()}
+          hiddenState={null}
+          onUnhideTitle={vi.fn()}
+          onUnhideGenre={vi.fn()}
+        />
+      )
+    }
+
+    render(<Harness />)
+
+    fireEvent.change(screen.getByLabelText('Region (ISO 3166-1)'), { target: { value: 'CA' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByText('Settings saved.')).toBeInTheDocument()
   })
 })
