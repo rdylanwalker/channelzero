@@ -15,6 +15,7 @@ use crate::sync::RawProgram;
 #[derive(Debug, Deserialize)]
 struct TmdbDiscoverResponse {
     results: Vec<TmdbDiscoverItem>,
+    total_pages: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -109,50 +110,83 @@ pub async fn fetch_tmdb_releases(
     let watch_providers_param = tmdb_provider_ids.join("|");
 
     let mut out = Vec::new();
+    let max_pages = discover_page_limit(config.new_release_days);
 
-    // 1. Discover Movies
-    let movie_url = format!(
-        "https://api.themoviedb.org/3/discover/movie?api_key={api_key}&watch_region={}&with_watch_providers={watch_providers_param}&primary_release_date.gte={min_date}&primary_release_date.lte={max_date}&sort_by=popularity.desc&page=1",
-        config.region
-    );
-    if let Ok(resp) = client.get(&movie_url).send().await {
-        if resp.status().is_success() {
-            if let Ok(data) = resp.json::<TmdbDiscoverResponse>().await {
-                for item in data.results.into_iter().take(20) {
-                    if let Some(prog) =
-                        enrich_tmdb_item(client, config, api_key, item, MediaType::Movie).await
-                    {
-                        out.push(prog);
+    // 1. Discover Movies (paginated)
+    for page in 1..=max_pages {
+        let movie_url = format!(
+            "https://api.themoviedb.org/3/discover/movie?api_key={api_key}&watch_region={}&with_watch_providers={watch_providers_param}&primary_release_date.gte={min_date}&primary_release_date.lte={max_date}&sort_by=popularity.desc&page={page}",
+            config.region
+        );
+        match client.get(&movie_url).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                if let Ok(data) = resp.json::<TmdbDiscoverResponse>().await {
+                    let total_pages = data.total_pages.unwrap_or(1);
+                    if data.results.is_empty() {
+                        break;
                     }
+                    for item in data.results {
+                        if let Some(prog) =
+                            enrich_tmdb_item(client, config, api_key, item, MediaType::Movie).await
+                        {
+                            out.push(prog);
+                        }
+                    }
+                    if page >= total_pages {
+                        break;
+                    }
+                } else {
+                    break;
                 }
             }
-        } else {
-            debug!("TMDB discover movie HTTP {}", resp.status());
+            Ok(resp) => {
+                debug!("TMDB discover movie HTTP {}", resp.status());
+                break;
+            }
+            Err(_) => break,
         }
     }
 
-    // 2. Discover TV Series
-    let tv_url = format!(
-        "https://api.themoviedb.org/3/discover/tv?api_key={api_key}&watch_region={}&with_watch_providers={watch_providers_param}&first_air_date.gte={min_date}&first_air_date.lte={max_date}&sort_by=popularity.desc&page=1",
-        config.region
-    );
-    if let Ok(resp) = client.get(&tv_url).send().await {
-        if resp.status().is_success() {
-            if let Ok(data) = resp.json::<TmdbDiscoverResponse>().await {
-                for item in data.results.into_iter().take(20) {
-                    if let Some(prog) =
-                        enrich_tmdb_item(client, config, api_key, item, MediaType::Series).await
-                    {
-                        out.push(prog);
+    // 2. Discover TV Series (paginated)
+    for page in 1..=max_pages {
+        let tv_url = format!(
+            "https://api.themoviedb.org/3/discover/tv?api_key={api_key}&watch_region={}&with_watch_providers={watch_providers_param}&first_air_date.gte={min_date}&first_air_date.lte={max_date}&sort_by=popularity.desc&page={page}",
+            config.region
+        );
+        match client.get(&tv_url).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                if let Ok(data) = resp.json::<TmdbDiscoverResponse>().await {
+                    let total_pages = data.total_pages.unwrap_or(1);
+                    if data.results.is_empty() {
+                        break;
                     }
+                    for item in data.results {
+                        if let Some(prog) =
+                            enrich_tmdb_item(client, config, api_key, item, MediaType::Series).await
+                        {
+                            out.push(prog);
+                        }
+                    }
+                    if page >= total_pages {
+                        break;
+                    }
+                } else {
+                    break;
                 }
             }
-        } else {
-            debug!("TMDB discover tv HTTP {}", resp.status());
+            Ok(resp) => {
+                debug!("TMDB discover tv HTTP {}", resp.status());
+                break;
+            }
+            Err(_) => break,
         }
     }
 
     Ok(out)
+}
+
+fn discover_page_limit(new_release_days: u32) -> u32 {
+    new_release_days.div_ceil(15).clamp(1, 5)
 }
 
 async fn enrich_tmdb_item(
@@ -277,4 +311,19 @@ async fn enrich_tmdb_item(
         tmdb_id: Some(item.id),
         tvmaze_id: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn discover_page_limit_scales_with_days() {
+        assert_eq!(discover_page_limit(7), 1);
+        assert_eq!(discover_page_limit(15), 1);
+        assert_eq!(discover_page_limit(30), 2);
+        assert_eq!(discover_page_limit(60), 4);
+        assert_eq!(discover_page_limit(90), 5);
+        assert_eq!(discover_page_limit(365), 5);
+    }
 }
