@@ -1,4 +1,4 @@
-import { ArrowDownUp, Search } from 'lucide-react'
+import { ArrowDownUp, RotateCcw, Search } from 'lucide-react'
 import type { ProviderMeta } from '../types'
 import { Button } from './ui/Button'
 import { Input } from './ui/Input'
@@ -25,6 +25,7 @@ interface FilterBarProps {
   onSortChange: (v: string) => void
   order: 'asc' | 'desc'
   onOrderToggle: () => void
+  onResetFilters: () => void
   totalCount: number
 }
 
@@ -49,10 +50,22 @@ export function FilterBar({
   onSortChange,
   order,
   onOrderToggle,
+  onResetFilters,
   totalCount,
 }: FilterBarProps) {
+  const hasActiveFilters =
+    q !== '' ||
+    selectedProvider !== 'all' ||
+    mediaType !== 'all' ||
+    releaseKind !== 'all' ||
+    genre !== 'all' ||
+    status !== 'all' ||
+    minRating !== 'all' ||
+    sort !== 'release_date' ||
+    order !== 'desc'
+
   return (
-    <section className="space-y-3 rounded-xl border border-border bg-card/70 p-4">
+    <section className="space-y-3 rounded-xl border border-border bg-card/90 p-4 backdrop-blur-md">
       <div className="flex flex-col gap-3 md:flex-row md:items-center">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -156,9 +169,21 @@ export function FilterBar({
           })}
         </div>
 
-        <span className="text-xs text-muted-foreground">
-          {totalCount} {totalCount === 1 ? 'program' : 'programs'}
-        </span>
+        <div className="flex items-center gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onResetFilters}
+            disabled={!hasActiveFilters}
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            <span>Reset Filters</span>
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            {totalCount} {totalCount === 1 ? 'program' : 'programs'}
+          </span>
+        </div>
       </div>
     </section>
   )

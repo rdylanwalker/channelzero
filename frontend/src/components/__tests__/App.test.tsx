@@ -320,4 +320,31 @@ describe('App', () => {
     })
     errorSpy.mockRestore()
   })
+
+  it('resets filters, resets pagination, and scrolls to top when filters change', async () => {
+    const scrollToSpy = vi.fn()
+    vi.stubGlobal('scrollTo', scrollToSpy)
+    const fetchMock = makeFetchMock()
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Severance' })
+    scrollToSpy.mockClear()
+
+    // Change a filter -> scrolls to top
+    fireEvent.change(screen.getByDisplayValue('Movies & TV'), { target: { value: 'movie' } })
+    await waitFor(() => {
+      expect(scrollToSpy).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' })
+    })
+
+    const resetBtn = screen.getByRole('button', { name: 'Reset Filters' })
+    expect(resetBtn).not.toBeDisabled()
+
+    // Click Reset Filters -> restores default filter and disables Reset Filters
+    fireEvent.click(resetBtn)
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Movies & TV')).toBeInTheDocument()
+      expect(resetBtn).toBeDisabled()
+    })
+  })
 })
