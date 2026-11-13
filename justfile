@@ -85,8 +85,10 @@ e2e: fe-build rust-build
         -v "$PWD:/work" -w /work/playwright \
         {{playwright_image}} sh -c "npm run typecheck && npm run test:e2e"
 
-screenshot: fe-build rust-build
-    docker run --rm --ipc=host --user "$(id -u):$(id -g)" -e HOME=/tmp -e CI=1 \
+# Capture README screenshot from the running local instance (e.g. `docker compose up -d`)
+screenshot:
+    docker run --rm --ipc=host --network=host --user "$(id -u):$(id -g)" -e HOME=/tmp -e CI=1 \
+        -e CHANNELZERO_BASE_URL=http://127.0.0.1:8080 \
         -v "$PWD:/work" -w /work/playwright \
         {{playwright_image}} npm run screenshot
 

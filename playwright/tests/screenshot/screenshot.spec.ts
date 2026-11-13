@@ -7,9 +7,24 @@ test('capture dashboard screenshot for README', async ({ page }) => {
   await page.goto('/')
 
   await expect(page.getByRole('heading', { name: 'ChannelZero' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Neon Horizon' })).toBeVisible()
-  await expect(page.getByText('4 programs')).toBeVisible()
-  await page.waitForLoadState('networkidle')
+  await expect(page.locator('article.group').first()).toBeVisible({ timeout: 30_000 })
+
+  // Wait for all visible poster images to finish loading
+  await page.evaluate(async () => {
+    const imgs = Array.from(document.images)
+    await Promise.all(
+      imgs
+        .filter((img) => !img.complete)
+        .map(
+          (img) =>
+            new Promise<void>((resolve) => {
+              img.addEventListener('load', () => resolve(), { once: true })
+              img.addEventListener('error', () => resolve(), { once: true })
+            }),
+        ),
+    )
+  })
+  await page.waitForTimeout(300)
 
   const outPath = path.resolve(process.cwd(), '../docs/dashboard.png')
   mkdirSync(path.dirname(outPath), { recursive: true })
