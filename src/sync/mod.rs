@@ -9,6 +9,8 @@ use reqwest::Client;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
 use tracing::{error, info};
 
 use crate::config::AppConfig;
@@ -221,25 +223,36 @@ async fn run_sync_inner(db: &Database, config: &AppConfig) -> anyhow::Result<()>
     let omdb_key = config.sources.omdb.api_key.as_deref().unwrap_or("");
     if config.sources.omdb.enabled && !omdb_key.is_empty() {
         let mut enriched_count = 0i64;
-        for prog in merged.iter_mut().take(35) {
-            if let Some(imdb_id) = &prog.imdb_id {
-                if let Some(extra_ratings) =
-                    omdb::fetch_omdb_ratings(&client, omdb_key, imdb_id).await
-                {
-                    for r in extra_ratings {
-                        if !prog
-                            .ratings
-                            .iter()
-                            .any(|existing| existing.source == r.source)
-                        {
-                            prog.ratings.push(r);
-                        }
+        let sem = Arc::new(Semaphore::new(8));
+        let mut set = JoinSet::new();
+        for (idx, prog) in merged.iter().take(35).enumerate() {
+            if let Some(imdb_id) = prog.imdb_id.clone() {
+                let permit = sem.clone();
+                let client = client.clone();
+                let key = omdb_key.to_string();
+                set.spawn(async move {
+                    let _guard = permit.acquire().await.ok()?;
+                    let ratings = omdb::fetch_omdb_ratings(&client, &key, &imdb_id).await?;
+                    Some((idx, ratings))
+                });
+            }
+        }
+        while let Some(res) = set.join_next().await {
+            if let Ok(Some((idx, extra_ratings))) = res {
+                let prog = &mut merged[idx];
+                for r in extra_ratings {
+                    if !prog
+                        .ratings
+                        .iter()
+                        .any(|existing| existing.source == r.source)
+                    {
+                        prog.ratings.push(r);
                     }
-                    if !prog.sources.iter().any(|s| s == "OMDb") {
-                        prog.sources.push("OMDb".into());
-                    }
-                    enriched_count += 1;
                 }
+                if !prog.sources.iter().any(|s| s == "OMDb") {
+                    prog.sources.push("OMDb".into());
+                }
+                enriched_count += 1;
             }
         }
         db.upsert_source_status(&SourceStatus {
@@ -279,22 +292,35 @@ async fn run_sync_inner(db: &Database, config: &AppConfig) -> anyhow::Result<()>
     let wm_key = config.sources.watchmode.api_key.as_deref().unwrap_or("");
     if config.sources.watchmode.enabled && !wm_key.is_empty() {
         let mut enriched_count = 0i64;
-        for prog in merged.iter_mut().take(20) {
-            if let Some(imdb_id) = &prog.imdb_id {
-                if let Some(links) =
-                    watchmode::fetch_watchmode_links(&client, wm_key, imdb_id, &config.region).await
-                {
-                    for prov in prog.providers.iter_mut() {
-                        if let Some(direct_url) = links.get(&prov.id) {
-                            prov.url = direct_url.clone();
-                            prov.is_direct = true;
-                        }
+        let sem = Arc::new(Semaphore::new(8));
+        let mut set = JoinSet::new();
+        for (idx, prog) in merged.iter().take(20).enumerate() {
+            if let Some(imdb_id) = prog.imdb_id.clone() {
+                let permit = sem.clone();
+                let client = client.clone();
+                let key = wm_key.to_string();
+                let region = config.region.clone();
+                set.spawn(async move {
+                    let _guard = permit.acquire().await.ok()?;
+                    let links =
+                        watchmode::fetch_watchmode_links(&client, &key, &imdb_id, &region).await?;
+                    Some((idx, links))
+                });
+            }
+        }
+        while let Some(res) = set.join_next().await {
+            if let Ok(Some((idx, links))) = res {
+                let prog = &mut merged[idx];
+                for prov in prog.providers.iter_mut() {
+                    if let Some(direct_url) = links.get(&prov.id) {
+                        prov.url = direct_url.clone();
+                        prov.is_direct = true;
                     }
-                    if !prog.sources.iter().any(|s| s == "Watchmode") {
-                        prog.sources.push("Watchmode".into());
-                    }
-                    enriched_count += 1;
                 }
+                if !prog.sources.iter().any(|s| s == "Watchmode") {
+                    prog.sources.push("Watchmode".into());
+                }
+                enriched_count += 1;
             }
         }
         db.upsert_source_status(&SourceStatus {
@@ -330,10 +356,14 @@ async fn run_sync_inner(db: &Database, config: &AppConfig) -> anyhow::Result<()>
         .await?;
     }
 
-    // Persist merged programs into SQLite
+    // Persist merged programs into SQLite in a single transaction to avoid per-row fsyncs.
+    let total_merged = merged.len();
+    let mut tx = db.pool.begin().await?;
     for prog in merged {
-        upsert_merged_program(db, config, prog, &now_str).await?;
+        upsert_merged_program_exec(&mut *tx, prog, &now_str).await?;
     }
+    tx.commit().await?;
+    info!("Persisted {total_merged} merged programs");
 
     Ok(())
 }
@@ -448,12 +478,24 @@ fn merge_programs(raw_items: Vec<RawProgram>, config: &AppConfig) -> Vec<MergedP
     list
 }
 
+#[cfg(test)]
 async fn upsert_merged_program(
     db: &Database,
     _config: &AppConfig,
     prog: MergedProgram,
     now_str: &str,
 ) -> anyhow::Result<()> {
+    upsert_merged_program_exec(&db.pool, prog, now_str).await
+}
+
+async fn upsert_merged_program_exec<'e, E>(
+    exec: E,
+    prog: MergedProgram,
+    now_str: &str,
+) -> anyhow::Result<()>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let primary_url = prog
         .providers
         .first()
@@ -527,7 +569,7 @@ async fn upsert_merged_program(
     .bind(prog.tmdb_id)
     .bind(prog.tvmaze_id)
     .bind(now_str)
-    .execute(&db.pool)
+    .execute(exec)
     .await?;
 
     Ok(())
