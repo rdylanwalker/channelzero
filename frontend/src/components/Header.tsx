@@ -1,4 +1,4 @@
-import { Activity, RefreshCw, Settings, Tv, User } from 'lucide-react'
+import { Activity, RefreshCw, Settings, User } from 'lucide-react'
 import type { Profile, PublicConfig, SyncStatusResponse } from '../types'
 import { Button } from './ui/Button'
 import { Select } from './ui/Select'
@@ -39,9 +39,7 @@ export function Header({
     <header className="border-b border-border bg-background/90 backdrop-blur-md">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent text-white shadow">
-            <Tv className="h-5 w-5" />
-          </div>
+          <img src="/favicon.svg" alt="ChannelZero" className="h-9 w-9 rounded-lg shadow" />
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-lg font-bold tracking-tight text-foreground">ChannelZero</h1>
