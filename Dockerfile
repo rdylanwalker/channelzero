@@ -23,7 +23,7 @@ COPY src/ ./src/
 RUN touch src/main.rs && cargo build --release
 
 # Stage 3: Minimal Runtime Container
-FROM alpine:3.22
+FROM alpine:3.24
 
 RUN apk add --no-cache \
     ca-certificates \
